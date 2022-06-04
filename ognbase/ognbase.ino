@@ -93,6 +93,14 @@
 //#define TBEAM
 //#define TTGO
 
+#if !defined(TBEAM) && !defined(TTGO)
+#error No board defined
+#endif
+
+#if defined(TBEAM) && defined(TTGO)
+#error Multiple boards defined
+#endif
+
 #if defined(ENABLE_AHRS)
 #include "AHRS.h"
 #endif /* ENABLE_AHRS */
