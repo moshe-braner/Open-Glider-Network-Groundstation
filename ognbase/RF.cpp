@@ -61,7 +61,6 @@ size_t (* protocol_encode)(void *, ufo_t *);
 bool   (* protocol_decode)(void *, ufo_t *, ufo_t *);
 
 static Slots_descr_t Time_Slots, *ts;
-static uint8_t       RF_timing = RF_TIMING_INTERVAL;   // default but we won't use it
 
 #if defined(TBEAM)
 extern const gnss_chip_ops_t *gnss_chip;
@@ -166,26 +165,7 @@ byte RF_setup(void)
           case RF_PROTOCOL_LEGACY:
           default:                    p = &legacy_proto_desc; break;
         }
-
-// >>> the following includes hardcoded constants for Legacy protocol:
-
-// >>> the new time slots code currently does NOT use these values.
-
-        RF_timing         = p->tm_type;
-
-        ts                = &Time_Slots;
-        ts->air_time      = p->air_time;
-        ts->interval_min  = p->tx_interval_min;
-        ts->interval_max  = p->tx_interval_max;
-        ts->interval_mid  = (p->tx_interval_max + p->tx_interval_min) / 2;
-        ts->s0.begin      = 400;   // p->slot0.begin;
-        ts->s1.begin      = 800;   // p->slot1.begin;
-        ts->s0.duration   = 400;   // p->slot0.end - p->slot0.begin;
-        ts->s1.duration   = 400;   // p->slot1.end - p->slot1.begin;
-
-        uint16_t duration = ts->s0.duration + ts->s1.duration;
-        ts->adj = duration > ts->interval_mid ? 0 : (ts->interval_mid - duration) / 2;
-
+    
         return rf_chip->type;
     }
     else
