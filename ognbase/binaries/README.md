@@ -5,6 +5,13 @@
 Besides the binary here, download the files in the "data" folder: config.json (template), index.html, style.css.
 
 
+## revision MB145
+
+### Major improvements
+
+Fixed bugs in 2-station traffic timestamp and in single-station sleep
+
+
 ## revision MB144
 
 ### Major improvements

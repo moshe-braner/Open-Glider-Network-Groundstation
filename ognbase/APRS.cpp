@@ -699,7 +699,7 @@ bool OGN_APRS_Status(ufo_t* this_aircraft, bool first_time, String resetReason)
     // OGNbase specific fields
 
     StatusPacket += " ";
-    static uint32_t prev_uptime   = 0x7FFFFFFF;
+    static uint32_t prev_uptime   = 0;
     static uint32_t prev_r_uptime = 0x7FFFFFFF;
     if (first_time) {
         // StatusPacket += "reset_reason_";

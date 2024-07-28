@@ -804,27 +804,29 @@ void Time_loop()
     if (ThisAircraft.timestamp != OurTime) {      /* do this only once per second */
 
       ThisAircraft.timestamp = OurTime;
+      int oldsec = ThisAircraft.second;
       int oldmin = ThisAircraft.minute;
-#if defined(TBEAM)
+//#if defined(TBEAM)
+#if 0
       if (ogn_gnsstime && isValidGNSStime()) {
         ThisAircraft.second = gnss.time.second();
-        if (ThisAircraft.second == 0)
+        if (ThisAircraft.second < oldsec) {
             ThisAircraft.minute = gnss.time.minute();
-        if (ThisAircraft.minute == 0)
             ThisAircraft.hour = gnss.time.hour();
+        }
       } else {
         ThisAircraft.second = second(OurTime);
-        if (ThisAircraft.second == 0)
+        if (ThisAircraft.second < oldsec) {
             ThisAircraft.minute = minute(OurTime);
-        if (ThisAircraft.minute == 0)
             ThisAircraft.hour = hour(OurTime);
+        }
       }
 #else
       ThisAircraft.second = second(OurTime);
-      if (ThisAircraft.second == 0)
+      if (ThisAircraft.second < oldsec) {     /* rollover into a new minute */
           ThisAircraft.minute = minute(OurTime);
-      if (ThisAircraft.minute == 0)
           ThisAircraft.hour = hour(OurTime);
+      }
 #endif
 
       if (last_hour == 0)

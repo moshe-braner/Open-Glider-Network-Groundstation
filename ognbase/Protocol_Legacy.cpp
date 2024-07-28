@@ -677,7 +677,9 @@ Serial.printf("received non-relay pkt, msg_type=%X, addr=%06X\r\n", pkt->msg_typ
       if (time_sent) {
 
           /* original H,M,S sent from remote */
-          uint32_t hms = ((uint32_t)(pkt->ns[2]) | ((uint32_t)(pkt->ns[3]) << 8));
+          //uint32_t hms = ((uint32_t)(pkt->ns[2]) | ((uint32_t)(pkt->ns[3]) << 8));
+          //  - this sometimes came out as 31h60m - sign bit of ns[2] extended left?
+          uint32_t hms = (((uint32_t) pkt->ns[2]) & 0xFF) | (((uint32_t) pkt->ns[3]) << 8);
           fop->hour   = ((hms & 0x0F800) >> 11);
           fop->minute = ((hms & 0x007E0) >> 5);
           fop->second = ((hms & 0x0001F) << 1);

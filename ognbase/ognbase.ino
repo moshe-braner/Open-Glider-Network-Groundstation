@@ -858,9 +858,11 @@ sleep_check()
     /* if clock is valid, tie wakeup time to clock time */
     int localtime = 0;
     int seconds_into_hour = 0;
-    bool havetime = (OurTime != 0
-          && ((ognrelay_base && ognrelay_time)? remote_sats>3 :
-              (ogn_gnsstime? gnss.satellites.value()>3 : true)));
+    bool havetime;
+    if (ognrelay_time || ognreverse_time)
+        havetime = OurTime > 1000000 && time_synched;
+    else
+        havetime = OurTime > 1000000 && NTP_synched;
     if (havetime) {
         localtime = ThisAircraft.hour + ogn_timezone;
         if (localtime > 23)  localtime -= 24;
