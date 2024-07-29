@@ -38,7 +38,7 @@
 SSD1306Wire display(SSD1306_OLED_I2C_ADDR, -1, -1, GEOMETRY_128_64, I2C_TWO, 400000);
 
 bool display_init = false;
-bool display_enabled = true;
+bool display_enabled = false;
 bool OLED_blank = false;
 
 int rssi      = 0;
@@ -96,7 +96,10 @@ bool OLED_probe() {
 void OLED_setup()
 {
     display_init = display.init();
+    if (! display_init)
+        return;
     display.flipScreenVertically();
+    display_enabled = true;
 }
 
 void OLED_write(const char* text, short x, short y, bool clear)
