@@ -427,7 +427,7 @@ void ground()
 
 //Serial.println("position...");
 
-  if (!position_is_set && ogn_lat != 0 && ogn_lon != 0) {
+  if (! position_is_set && ! ogn_mobile && ogn_lat != 0 && ogn_lon != 0) {
     ThisAircraft.latitude = ogn_lat;
     ThisAircraft.longitude = ogn_lon;
     ThisAircraft.altitude = ogn_alt;
@@ -459,13 +459,13 @@ void ground()
 
 #if defined(TBEAM)
 
-  if (!position_is_set || ogn_gnsstime) {
-
 //Serial.println("GNSS_loop...");
 
-// GNSS_loop() (really GNSSTimeSync()) returns true only once a minute.
+  GNSS_loop();
 
-    if (GNSS_loop() && (!position_is_set || ogn_mobile) && isValidFix()) {
+  if (!position_is_set || ogn_gnsstime) {
+
+    if ((!position_is_set || ogn_mobile) && isValidFix()) {
     
       ThisAircraft.latitude = gnss.location.lat();
       ThisAircraft.longitude = gnss.location.lng();
@@ -482,14 +482,14 @@ void ground()
           ThisAircraft.altitude -= ThisAircraft.geoid_separation;
       }
 #endif
+
       ogn_lat = gnss.location.lat();
       ogn_lon = gnss.location.lng();
       ogn_alt = gnss.altitude.meters();
       ogn_geoid_separation = ThisAircraft.geoid_separation;
 
-      Serial.println("Position set from GNSS");
-
       if (!position_is_set) {
+          Serial.println("Position set from GNSS");
           msg = "GPS fix LAT: ";
           msg += gnss.location.lat();
           msg += " LON: ";
@@ -500,7 +500,7 @@ void ground()
           position_is_set = true;    
       }
 
-      if (! ogn_gnsstime) {
+      if (! ogn_gnsstime && ! ogn_mobile) {
         GNSS_sleep();
         DebugLogWrite("gnss sleep, position from gnss");
       }
@@ -508,14 +508,13 @@ void ground()
     }
 
   if(!position_is_set){
-    delay(1000);
     Serial.println(F("still no position..."));
     OLED_write("no position data", 0, 18, true);
-    if (ogn_gnsstime) {
-        delay(600);
+    delay(1200);
+    if (ogn_gnsstime && !isValidFix()) {
         OLED_write("waiting for GPS fix", 0, 18, true);
+        delay(1200);
     }
-    delay(1000);
     OLED_info();
   }
 
@@ -524,10 +523,9 @@ void ground()
 #else
 
   if(!position_is_set){
-    delay(1000);
     Serial.println(F(">>> no position data found"));
     OLED_write("no position data found", 0, 18, true);
-    delay(1000);
+    delay(2000);
     OLED_info();
   }
 
@@ -595,6 +593,8 @@ void ground()
       bool time_ok;
       if (ognrelay_time || ognreverse_time)
           time_ok = time_synched;
+      else if(ogn_gnsstime)
+          time_ok = isValidGNSStime();
       else
           time_ok = NTP_synched;
       if (OurTime > 1000000 && ThisAircraft.second != 0

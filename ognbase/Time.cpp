@@ -540,12 +540,13 @@ void Timesync_restart()
 
 void Poll_GNSS()
 {
-    uint32_t now_ms = millis();
 #if defined(TBEAM)
+
+    uint32_t now_ms = millis();
 
     bool validgnss = isValidGNSStime();
 
-    if ((!ognrelay_base || !ognrelay_time) && OurTime != 0
+    if ((!ognrelay_base || !ognrelay_time) && OurTime > 1000000
           && (now_ms < base_time_ms + (validgnss? TIME_TO_GNSS_TIME : TIME_TO_RE_SYNC))) {
 
         /* use free-running clock for short periods or during GPS dropouts */
