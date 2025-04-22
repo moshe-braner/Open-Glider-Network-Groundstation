@@ -804,31 +804,15 @@ void Time_loop()
 */
     if (ThisAircraft.timestamp != OurTime) {      /* do this only once per second */
 
+      bool first_time = (ThisAircraft.timestamp == 0);
       ThisAircraft.timestamp = OurTime;
       int oldsec = ThisAircraft.second;
       int oldmin = ThisAircraft.minute;
-//#if defined(TBEAM)
-#if 0
-      if (ogn_gnsstime && isValidGNSStime()) {
-        ThisAircraft.second = gnss.time.second();
-        if (ThisAircraft.second < oldsec) {
-            ThisAircraft.minute = gnss.time.minute();
-            ThisAircraft.hour = gnss.time.hour();
-        }
-      } else {
-        ThisAircraft.second = second(OurTime);
-        if (ThisAircraft.second < oldsec) {
-            ThisAircraft.minute = minute(OurTime);
-            ThisAircraft.hour = hour(OurTime);
-        }
-      }
-#else
       ThisAircraft.second = second(OurTime);
-      if (ThisAircraft.second < oldsec) {     /* rollover into a new minute */
+      if (first_time || ThisAircraft.second < oldsec) {   // rollover into a new minute
           ThisAircraft.minute = minute(OurTime);
           ThisAircraft.hour = hour(OurTime);
       }
-#endif
 
       if (last_hour == 0)
           last_hour = OurTime;                   /* seconds */
@@ -865,7 +849,8 @@ void Time_loop()
               packets_per_minute = (cumul_traffic - prev_traffic) / TRAFFIC_MINUTES;
           else   /* first minutes after (re)start, or no traffic, or rollover */
               packets_per_minute = 0;
-      }
+
+      }  /* done once-per-minute chores */
 
 #if defined(T3S3) || defined(TTGO)
       if (ognrelay_enable) {
@@ -1225,6 +1210,7 @@ void Poll_NTP()
 
 void Time_setup()
 {
+    ThisAircraft.timestamp = 0;
     if (ognrelay_base) {
         for (int i=0; i<TRAFFIC_MINUTES; i++)
            traffic_by_minute[i] = 0xFFFFFFFF;

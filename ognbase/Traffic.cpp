@@ -19,7 +19,6 @@
  */
 
 #include "Traffic.h"
-#include "ApproxMath.h"
 #include "EEPROM.h"
 #include "RF.h"
 #include "Time.h"
@@ -240,13 +239,16 @@ static int8_t Alarm_Legacy(ufo_t* this_aircraft, ufo_t* fop)
 
 void calc_distance(ufo_t* fop)
 {
+    static float coslat = 0;
+    if (coslat == 0)  coslat = cosf(ThisAircraft.latitude * 0.0174533);\
+
 //  fop->distance = gnss.distanceBetween(ThisAircraft.latitude,
 //                                       ThisAircraft.longitude,
 //                                       fop->latitude,
 //                                       fop->longitude);
   float dy = 111300.0 * (fop->latitude - ThisAircraft.latitude);     /* meters */
-  float dx = 111300.0 * (fop->longitude - ThisAircraft.longitude) * CosLat(ThisAircraft.latitude);
-  fop->distance = approxHypotenuse(dx, dy);
+  float dx = 111300.0 * (fop->longitude - ThisAircraft.longitude) * coslat;
+  fop->distance = hypot(dx, dy);
 }
 
 void ParseData()

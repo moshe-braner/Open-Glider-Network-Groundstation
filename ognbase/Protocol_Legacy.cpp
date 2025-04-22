@@ -21,11 +21,13 @@
 #include <math.h>
 #include <stdint.h>
 
+#define D2R (3.141593f/180.0f)
+#define R2D (180.0f/3.141593f)
+
 #include <protocol.h>
 
 #include "SoftRF.h"
 #include "global.h"
-#include "ApproxMath.h"
 #include "Time.h"
 #include "RF.h"
 #include "Protocol_Legacy.h"
@@ -440,9 +442,6 @@ bool legacy_decode(void* buffer, ufo_t* this_aircraft, ufo_t* fop)
 
     legacy_packet_t* pkt = (legacy_packet_t *) buffer;
 
-    fop->addr = pkt->addr;     /* first 32 bits are not encrypted */
-//Serial.printf("decoding pkt, msg_type=%X, addr=%06X\r\n", pkt->msg_type, pkt->addr);
-
     fop->relayed = false;
 
     fop->rssi  = RF_last_rssi;
@@ -469,8 +468,9 @@ Serial.printf("received non-traffic pkt, msg_type=%X\r\n", pkt->msg_type);
 Serial.printf("received non-relay pkt, msg_type=%X, addr=%06X\r\n", pkt->msg_type, pkt->addr);
           return false;          /* ignore normal packets */
         }
-        if (pkt->msg_type == MSG_TYPE_ORG)                      // original was in old protocol
+        if (pkt->msg_type == MSG_TYPE_ORG)                // original was in old protocol
             ++old_protocol_packets_recvd;
+        pkt->addr ^= 0x0FFFFFF;                           // unscramble the ID
         /* fall through and decode relayed packets */
 
     } else {    /* single station mode */
@@ -484,6 +484,19 @@ Serial.printf("received non-relay pkt, msg_type=%X, addr=%06X\r\n", pkt->msg_typ
     }
 
 //Serial.println("decoding traffic packet...");
+
+    fop->addr = pkt->addr;     /* first 32 bits are not encrypted */
+
+    // SoftRF air-relays with third bit set in addr_type
+    if (pkt->addr_type > 3) {
+        ++air_relayed_packets_recvd;
+        if (pkt->no_track)     // air-relayed ADS-B traffic - drop
+            return false;
+        if (!ognrelay_enable) {
+            fop->relayed = true;
+            pkt->addr_type &= 3;
+        }
+    }
 
     //uint32_t timestamp = (uint32_t) this_aircraft->timestamp;
     uint32_t timestamp = (uint32_t) RF_time;
@@ -585,16 +598,16 @@ Serial.printf("received non-relay pkt, msg_type=%X, addr=%06X\r\n", pkt->msg_typ
 
     float nsf = (float)(((int32_t) pkt->ns[0]) << pkt->smult);      /* quarter-meters per sec */
     float ewf = (float)(((int32_t) pkt->ew[0]) << pkt->smult);
-    float speed4 = approxHypotenuse(nsf, ewf);
+    float speed4 = hypot(nsf, ewf);
 
     float direction = 0;
     float turnrate = 0;
     if (speed4 > 0)
     {
-        direction = atan2_approx(nsf, ewf);
+        direction = R2D * atan2(ewf, nsf);
         nsf = (float)(((int32_t) pkt->ns[1]) << pkt->smult);
         ewf = (float)(((int32_t) pkt->ew[1]) << pkt->smult);
-        turnrate = atan2_approx(nsf, ewf) - direction;
+        turnrate = R2D * atan2(ewf, nsf) - direction;
         if (turnrate >  180.0)  turnrate -= 360.0;
         if (turnrate < -180.0)  turnrate += 360.0;
         if (fop->aircraft_type == AIRCRAFT_TYPE_TOWPLANE)         // known 4-second intervals
@@ -618,16 +631,6 @@ Serial.printf("received non-relay pkt, msg_type=%X, addr=%06X\r\n", pkt->msg_typ
         return false;
 
     int16_t alt = pkt->alt;  /* relative to WGS84 ellipsoid */
-
-
-    // SoftRF air-relays in old protocol with third bit set in addr_type
-    if (pkt->addr_type > 3) {
-        ++air_relayed_packets_recvd;
-        if (!ognrelay_enable) {
-            fop->relayed = true;
-            pkt->addr_type &= 3;
-        }
-    }
 
     if (pkt->msg_type == MSG_TYPE_OLD && !fop->relayed)     // original in old protocol
         ++old_protocol_packets_recvd;
@@ -756,8 +759,8 @@ size_t legacy_encode_data(void* legacy_pkt, ufo_t* fop)
     pkt->_unk1 = 0;
     pkt->_unk2 = 0;
 
-    pkt->ns[0] = (int8_t) (((uint32_t)(speed4f * cos_approx(course))) >> smult);
-    pkt->ew[0] = (int8_t) (((uint32_t)(speed4f * sin_approx(course))) >> smult);
+    pkt->ns[0] = (int8_t) (((uint32_t)(speed4f * cos(D2R * course))) >> smult);
+    pkt->ew[0] = (int8_t) (((uint32_t)(speed4f * sin(D2R * course))) >> smult);
     float delta_t;
     if (fop->aircraft_type == AIRCRAFT_TYPE_TOWPLANE)
         delta_t = 4.0;
@@ -772,8 +775,8 @@ size_t legacy_encode_data(void* legacy_pkt, ufo_t* fop)
         pkt->_unk2 = 1;
     }
     course += delta_t * fop->turnrate;
-    pkt->ns[1] = (int8_t) (((uint32_t)(speed4f * cos_approx(course))) >> smult);
-    pkt->ew[1] = (int8_t) (((uint32_t)(speed4f * sin_approx(course))) >> smult);
+    pkt->ns[1] = (int8_t) (((uint32_t)(speed4f * cos(D2R * course))) >> smult);
+    pkt->ew[1] = (int8_t) (((uint32_t)(speed4f * sin(D2R * course))) >> smult);
 
     pkt->vs = vs10;
 
@@ -855,6 +858,9 @@ size_t legacy_encode(void* buffer, ufo_t* fop)
         uint32_t *p = (uint32_t *) pkt;
         btea(p+1, 5, key);
 
+        // scramble the ID so FLARMs will not get upset
+        pkt->addr ^= 0x0FFFFFF;
+
         return sizeof(legacy_packet_t);
 
     } else if (fop->msg_type == MSG_TYPE_NEW) {  // new protocol only
@@ -866,6 +872,9 @@ size_t legacy_encode(void* buffer, ufo_t* fop)
         /* use bits in the first - unencrypted - word as flags */
         pkt->msg_type = MSG_TYPE_RAW;       /* does not have a timestamp */
         pkt->_unk1 = (ThisAircraft.timestamp > fop->timestamp + 12) ? 1 : 0;
+
+        // scramble the ID so FLARMs will not get upset
+        pkt->addr ^= 0x0FFFFFF;
 
         return sizeof(legacy_packet_t);
     }
