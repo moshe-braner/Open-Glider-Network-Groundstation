@@ -46,7 +46,7 @@
       "noise":0
    },
    "aprs":{
-      "callsign":"MyCallSign",
+      "callsign":"CallSign",
       "server":"aprs.glidernet.org",
       "port":14580,
       "debug":false,

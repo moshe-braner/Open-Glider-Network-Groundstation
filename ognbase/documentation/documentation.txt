@@ -3,7 +3,7 @@ Documentation for OGNbase
 
 By Moshe Braner
 
-This version last updated July 17 2024 to fit software version MB144
+This version last updated February 12, 2026 to fit software version MB148
 
 
 HISTORY
@@ -58,7 +58,7 @@ Note: One needs to install different firmware binaries on the different hardware
 
 Other hardware models could potentially be used, but have not been tested at this point.  See the long list of models that SoftRF runs on:  https://github.com/lyusupov/SoftRF#models
 
-The remote station of a relay setup can run on solar power.  The T-Beam needs an 18650 lithium ion battery, and includes a circuit for regulating the charging of the battery from a 5V source via the USB jack.  The T3S3 has a jack for connecting an off-board lithium battery, and includes a charge controller chip.  Alternatively, can power the board using a 5V USB "power bank", which in turn is charged from the solar panel, but then the OGNbase software cannot detect a medium-low-battery situation.  In either case, a step-down module from the voltage of the solar panel to 5 volts should be placed between the solar panel and the USB charging jack.  A solar charging current of only 100 mA or so during sunlight hours should suffice, especially if the software is set up to put the processor into sleep mode at night or when there is no glider traffic.
+The remote station of a relay setup can run on solar power.  The T-Beam needs an 18650 lithium ion battery, and includes a circuit for regulating the charging of the battery from a 5V source via the USB jack.  The T3S3 has a jack for connecting an off-board lithium battery, and includes a charge controller chip.  Alternatively, can power the board using a 5V USB "power bank", which in turn is charged from the solar panel, but then the OGNbase software cannot detect a medium-low-battery situation.  In either case, a step-down module from the voltage of the solar panel to 5 volts should be placed between the solar panel and the USB charging jack.  A solar charging current of only 100 mA or so during sunlight hours should suffice, especially if the software is set up to put the processor into sleep mode at night or when there is no glider traffic.  The battery will last longer if it does not sit through hot summer days fully charged.  OGNbase version MB148 added a "solar shunt" output (GPIO 16 for the T3S3 or GPIO 25 for the T-Beam) turns high when the battery voltage exceeds 4.0, that can be used to turn on a MOSFET across the solar panel to stop the charging.
 
 A better antenna is needed than the tiny whip that is included with these boards.  See OGN guide pages for recommendations.  For example:  https://www.amazon.com/Signalplus-Omni-Directional-Antenna-824-960MHZ-Outdoor-Verizon/dp/B0917CPP84
 For a standalone station, or the remote station of a relay setup, an omnidirectional antenna is needed, to be able to receive signals from gliders in any direction.  For a base station with one remote station, a directional antenna pointed towards the remote station may work better than an omnidirectional once.  Either way, the antenna is much more expensive than the circuit board!  Now that the "Helium mining" craze is fading, there are used and closeout antennas on the market.
@@ -115,7 +115,7 @@ The "coordinates" section states the location of the station, using lat/lon (in 
       "mobile":false
    },
 
-If "mobile" is set to true, then the position is not fixed, rather, the station can move, and the location will be continuously updated using GNSS.  If you want to automatically set the station location when you turn OGNbase on, but not move it while operating, then leave "mobile" as false, and set both "lat" and "lon" to zero.  Either way, for automatic coordinates, the hardware device used must include GNSS, and "gnsstime" must be set to 1 (see below in the relay section).  Note that the web interface (see below) does NOT update the displayed lat/lon after they are adjusted based on GNSS, it keeps displaying the lat/lon that was in the configuration file.
+If "mobile" is set to true, then the position is not fixed, rather, the station can move, and the location will be continuously updated using GNSS.  If you want to automatically set the station location when you turn OGNbase on, but not move it while operating, then leave "mobile" as false, and set both "lat" and "lon" to zero.  Either way, for automatic coordinates, the hardware device used must include GNSS, and "gnsstime" must be set to 1 (see below in the relay section).  Note that the web interface (see below) does NOT update the displayed lat/lon after they are adjusted based on GNSS, it keeps displaying the lat/lon/alt that was in the configuration file.  Except that in mobile mode, the web page is updated once, after a GNSS fix is obtained.
 
 The "radio" section includes settings regarding the reception of radio signals from aircraft.  The "protocol" setting is optional, since it is always "legacy", meaning the radio message format used by FLARMs.  OGNbase receives and reports both the new (March 2024) protocol and the older protocol.  Here is an example of this section (skipping the "protocol"):
 
@@ -129,7 +129,7 @@ The "band" must be set to the right band for the region your station is in, othe
   RF_BAND_EU   = 1,  /* 868.2 MHz band */
   RF_BAND_US   = 2,  /* 915 MHz band */
   RF_BAND_AU   = 3,  /* 921 MHz band */
-  RF_BAND_NZ   = 4,  /* 869.250 MHz band */
+  RF_BAND_NZ   = 4,  /* 869.2 MHz band */
   RF_BAND_RU   = 5,  /* 868.8 MHz band */
   RF_BAND_CN   = 6,  /* 470 MHz band */
   RF_BAND_UK   = 7,  /* 869.52 MHz band */
@@ -152,6 +152,8 @@ The "aprs" section is about the OGN server that OGNbase will send APRS data pack
    },
 
 It states that the name of the station is "GileMtn" - see here for guidelines on naming stations: http://wiki.glidernet.org/receiver-naming-convention
+
+Set the port to 0 for testing without actually connecting to OGN, otherwise always 14580.
 
 The "range" is the maximum distance (in km) to be reported on - an aircraft farther than that from the station will not be reported.  If "hiderelayed" is set to true then traffic air-relayed by SoftRF is disassociated from this station - reported with "relayed" as the station name instead.  That is so as to not affect this station's range statistics.  If set to false, then "relayed" will appear at the end of the otherwise-normal APRS message from this station.
 
@@ -234,7 +236,7 @@ The web interface can be set up to be accessible remotely.  Choose a "webport" i
 
 OLED display
 
-The small display that is part of the T3S3 and Paxcounter hardware, and can optionally be soldered to the T-Beam hardware, shows some information about OGNbase operation.  It cycles between 3 or 4 pages.  And sometimes clears the display and shows just one line for a short time.  It shows the number of radio packets received, the wifi network connected to and the IP address, the OGNbase operational mode, the GNSS satellite reception status, current time, station location, and so forth.  The OLED is turned off after 10 minutes of operation.  Note: on the T-Beam now now has the choice of attaching the OLED display to pins 21,22 or to pins 2,13, the software automatically detects it.
+The small display that is part of the T3S3 and Paxcounter hardware, and can optionally be soldered to the T-Beam hardware, shows some information about OGNbase operation.  It cycles between 3 or 4 pages.  And sometimes clears the display and shows just one line for a short time.  It shows the number of radio packets received, the wifi network connected to and the IP address, the OGNbase operational mode, the GNSS satellite reception status, current time, station location, and so forth.  The OLED is turned off after 10 minutes of operation.  Note: on the T-Beam now now has the choice of attaching the OLED display to pins 21,22 or to pins 2,13, the software automatically detects it.  Information that is directed to the OLED is also output to USB-serial, even if an OLED is not installed.
 
 The OLED display turns off after about 15 minutes - the time can be set via the "oled" "disable" setting in the config file.  To turn it back on, can reboot the device, or, on the T-Beam, click the middle button.
 
@@ -383,6 +385,8 @@ The relayed radio packet is converted to the old (pre-2024) FLARM protocol, and 
 
 The choice of different frequencies from the FLARM frequencies, along with a different protocol, and those mark bits, should keep FLARMs from receiving the relayed packets and mistaking them for real traffic.  (It is real traffic, but shifted somewhat in time.)  Additionally, the encrytion key used by FLARM depends on the current time.  If the remote station has the exact time data, OGNbase de-crypts the packet, and later re-encrypts the packet for relay transmission, using a different key, based on the "relay key" from the configuration.  If the remote station does not have GNSS time, and is not receiving the NTP time from the base station, then the remote station cannot de-crypt the original FLARM packet.  It then relays the packet as-is with the original encryption, but on the non-FLARM frequency, and with some bits set in the first word to mark it as something other than a normal traffic packet.  The packet contents will also look like garbage to a FLARM (or standard OGN ground station) that tries to decrypt it, since the first word is used as part of the encryption key in the FLARM protocol.  Perhaps in the future OGNbase will use a different message protocol, e.g., OGNTP protocol, or even FANET, for the relayed messages.
 
+From version MB148 the base station also listens to air traffic directly once every 8 seconds.  Often the base station is on an airport while the remote station is some distance away.  The direct reception helps capture signals from aircraft on the ground which may not be received by the remote station.
+
 
 Time relay
 
@@ -410,7 +414,7 @@ Status messages sent to OGN
 You can monitor the operation of your station remotely via the internet.  Every few minutes the base station sends a "status" message to the OGN servers.  These messages are passed to clients that request them.  For example, if you use gliderradar.com, select your station, click on "raw packets", and you can see the recent status (and position) messages from your station.  You can bookmark the final URL.
 
 The status messages from OGNbase include the following information:  For example:
-K2B9>OGNSXR,TCPIP*,qAC,GLIDERN2:>235055h vMB103-ESP32-OGNbase 3.7V 0/min 0/0Acfts[1h] 120_m_r_uptime
+K2B9>OGNSXR,TCPIP*,qAC,GLIDERN2:>235055h vMB103-ESP32-OGNbase 3.7V 0/min 0/0Acfts[1h] 120_m_r_uptime -67_rssi
 Where the fields are:
    K2B9                 name of the ground station reporting
    OGNSXR               identifies the source as OGNbase
@@ -430,6 +434,7 @@ Data fields may also include:
    time_not_synched     the base station and remote station lost time synch, will try again
    1325_m_sleep         the base station will soon go to sleep for 1325 minutes
    1325_m_r_sleep       the remote relay station will soon go to sleep for 1325 minutes
+   -67_rssi             RSSI of the signal from the remote station as received by the base station
 
 Radio packets relayed by SoftRF
 
@@ -443,7 +448,7 @@ or
    "noise":1
 The value 2 means: collect noise samples at all times, but only if the receiver was already set up previously, and no packet has arrived meanwhile.  The value 1 means: collect noise samples only between 240 and 390 ms after PPS - that is, during a period when valid radio packets cannot arrive (after time slot 1 ended, and before time slot 0 starts).  Use the value 0 (or omit that line) to not collect noise data.  To extract the data, access the URL "base_url/noise" within the web interface (where "base_url" is the URL you use to access the status page).  Then you can "save page as".  When the /noise page is accessed, the data is also reset to all zeros and new data is collected afterwards.  The data is plain text, comma separated, with the fields: channel number (0-64), count of samples within that channel, and the sum of the RSSI readings in that channel.  Divide the sum by the count to get the average reading, e.g., with 451 samples and a sum of -49429 that is -109.6 dBm.
 
-From version MB143 OGNbase also sends background noise sampling data collected in the remote station to the base station where it can be extracted via the /remote_noise page in the web interface.  This data transfer only happens when there is traffic data being relayed from the remote to the base station.  And the data is more sparse, since only one sample is sent per relayed taffic packet.  Best to extract it at the end of a busy day at the airport.  For longer term average can collect multiple such samples and combine them.
+From version MB143 OGNbase also sends background noise sampling data collected in the remote station to the base station where it can be extracted via the /remote_noise page in the web interface.  This data collection is slower, since only one sample is sent per relayed taffic packet or time-setting packet.  Best to extract it at the end of a busy day at the airport.  For longer term average can collect multiple such samples and combine them.
 
 
 Compiling OGNbase

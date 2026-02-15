@@ -29,6 +29,7 @@
 #include "SoftRF.h"
 #include "global.h"
 #include "Time.h"
+#include "Traffic.h"
 #include "RF.h"
 #include "Protocol_Legacy.h"
 #include "EEPROM.h"
@@ -286,16 +287,17 @@ bool latest_decode(void* buffer, ufo_t* this_aircraft, ufo_t* fop)
     uint32_t timestamp = (uint32_t) RF_time;   // incremented in RF.cpp 300 ms after PPS
 
     new_packet_t* pkt = (new_packet_t *) buffer;
+    uint8_t msg_type = pkt->msg_type;
 
-    bool original = true;
-    if (pkt->msg_type == MSG_TYPE_RAW) {   // relayed in original encryption
-        original = false;
+    //bool original = true;
+    if (msg_type == MSG_TYPE_RAW) {   // relayed in original encryption
+        //original = false;
         // estimate original timestamp - may be off by several seconds
         if (pkt->_unk1 == 0)
             timestamp -= 4;       /* estimate average relaying delay */
         else
             timestamp -= 16;      /* remote station had long delay before relaying */
-        // restore original contents of first word in packet
+        // restore original contents of first word in packet - or else decryption will fail
         pkt->_unk1 = 0;
         pkt->msg_type = MSG_TYPE_NEW;
         fop->snr = 0;   // meaning not available - remote didn't add into relayed packet
@@ -327,10 +329,11 @@ bool latest_decode(void* buffer, ufo_t* this_aircraft, ufo_t* fop)
         time_error = false;
     if (time_error) {
         if (localbits == 0) {
-            Serial.printf("decrypt time err - local rolled over early %d %d\r\n", localbits, timebits);
-        // } else if (timebits == 0) {   // meaningless, timebits was not decrypted correctly
+            Serial.printf("msg_type=%X decrypt time err - local rolled over early %d %d\r\n",
+                msg_type, localbits, timebits);
         } else {
-            Serial.printf("decrypt time error > 1  - not at roll over %d %d\r\n", localbits, timebits);
+            Serial.printf("msg_type=%X decrypt time error > 1  - not at roll over %d %d\r\n",
+                msg_type, localbits, timebits);
         }
         return false;
     }
@@ -349,7 +352,6 @@ bool latest_decode(void* buffer, ufo_t* this_aircraft, ufo_t* fop)
     fop->msg_type = MSG_TYPE_NEW;
     fop->aircraft_type = pkt->aircraft_type;
 //Serial.printf("AC type: %d\n", fop->aircraft_type);
-    fop->addr_type = pkt->addr_type;
 
     int alt = descale(pkt->alt,12,1,0) - 1000;
     fop->altitude = (float) alt - this_aircraft->geoid_separation;
@@ -408,10 +410,17 @@ bool latest_decode(void* buffer, ufo_t* this_aircraft, ufo_t* fop)
     int32_t unk8 = pkt->unk8;
 //Serial.printf("unk8: %d  %x\n", unk8);
 
+#if 0
     if (testmode_enable)
     Serial.printf("fld,%06X,%ld,%.6f,%.6f,%d,%d,%d,%d,%d,%d,%d,%d,%d\r\n",
       fop->addr, timestamp, lat, lon, alt, turnrate, speed10,
         vs10, course, fop->gpsA, fop->gpsB, pkt->airborne, unk8 );
+#endif
+#if 0
+    if (testmode_enable)
+    Serial.printf("traffic,%06X,%ld,%.6f,%.6f,%d,%d\r\n",
+      fop->addr, timestamp, lat, lon, alt, pkt->airborne);
+#endif
 
     fop->hour   = this_aircraft->hour;
     fop->minute = this_aircraft->minute;
@@ -442,6 +451,11 @@ bool legacy_decode(void* buffer, ufo_t* this_aircraft, ufo_t* fop)
 
     legacy_packet_t* pkt = (legacy_packet_t *) buffer;
 
+    if (testmode_enable) {
+        Serial.printf("received,%06X,%X,%d,%d,%d,%d\r\n",
+            pkt->addr, (uint32_t) RF_time, (millis()-ref_time_ms), RF_current_slot, pkt->msg_type, RF_last_rssi);
+    }
+
     fop->relayed = false;
 
     fop->rssi  = RF_last_rssi;
@@ -449,10 +463,11 @@ bool legacy_decode(void* buffer, ufo_t* this_aircraft, ufo_t* fop)
     fop->bec   = RF_last_bec;
 
     bool traffic_msg = (pkt->msg_type == MSG_TYPE_OLD || pkt->msg_type == MSG_TYPE_NEW);
+    bool relayed_msg = (pkt->msg_type == MSG_TYPE_REL || pkt->msg_type == MSG_TYPE_ORG);
 
     // reject inappropriate packets depending on mode
 
-    if (ognrelay_enable) {
+    if (ognrelay_enable) {    // remote station
 
         if (!traffic_msg) {    // relayed, or special FLARM packet
           ++other_packets_recvd;
@@ -460,20 +475,26 @@ Serial.printf("received non-traffic pkt, msg_type=%X\r\n", pkt->msg_type);
           return false;
         }
 
-    } else if (ognrelay_base) {
+    } else if (ognrelay_base) {      // base station
 
-        if (pkt->msg_type != MSG_TYPE_REL && pkt->msg_type != MSG_TYPE_ORG && pkt->msg_type != MSG_TYPE_RAW) {
-          // other than relayed packets
+        if ((! traffic_msg) && (! relayed_msg) && pkt->msg_type != MSG_TYPE_RAW) {
+          // other than direct or relayed packets
           ++other_packets_recvd;
-Serial.printf("received non-relay pkt, msg_type=%X, addr=%06X\r\n", pkt->msg_type, pkt->addr);
-          return false;          /* ignore normal packets */
+Serial.printf("received non-direct non-relay pkt, msg_type=%X, addr=%06X\r\n", pkt->msg_type, pkt->addr);
+          return false;
+        }
+        if (ogn_band > RF_BAND_AU && traffic_msg) {
+            // where there is only one channel, usually ignore direct traffic messages
+            if (RF_current_slot != 0 || (RF_time & 0x07) != 0)
+                return false;
         }
         if (pkt->msg_type == MSG_TYPE_ORG)                // original was in old protocol
             ++old_protocol_packets_recvd;
-        pkt->addr ^= 0x0FFFFFF;                           // unscramble the ID
+        if (pkt->msg_type != MSG_TYPE_NEW)                // not direct reception
+            pkt->addr ^= 0x0FFFFFF;                       // unscramble the ID
         /* fall through and decode relayed packets */
 
-    } else {    /* single station mode */
+    } else {      // single station mode
 
         if (!traffic_msg) {    /* not normal traffic - ignore */
           ++other_packets_recvd;
@@ -483,18 +504,30 @@ Serial.printf("received non-relay pkt, msg_type=%X, addr=%06X\r\n", pkt->msg_typ
         /* fall through and decode normal packets */
     }
 
+    uint32_t addr = pkt->addr;     /* first 32 bits are not encrypted */
+    for (int i=0; i < MAX_TRACKING_OBJECTS; i++) {
+      if (Container[i].addr == addr) {
+        if (RF_last_crc != 0 && RF_last_crc == Container[i].last_crc) {
+          Serial.println("ignoring duplicate packet (CRC)");   // usually duplicated in 2nd time slot
+          return false;
+        }
+        break;
+      }
+    }
+    fop->addr = addr;
+    fop->last_crc = RF_last_crc;
+
 //Serial.println("decoding traffic packet...");
 
-    fop->addr = pkt->addr;     /* first 32 bits are not encrypted */
-
     // SoftRF air-relays with third bit set in addr_type
+    fop->addr_type = pkt->addr_type;
     if (pkt->addr_type > 3) {
         ++air_relayed_packets_recvd;
-        if (pkt->no_track)     // air-relayed ADS-B traffic - drop
+        if (pkt->no_track)     // no longer done for air-relayed ADS-B traffic
             return false;
         if (!ognrelay_enable) {
             fop->relayed = true;
-            pkt->addr_type &= 3;
+            fop->addr_type &= 3;
         }
     }
 
@@ -519,7 +552,7 @@ Serial.printf("received non-relay pkt, msg_type=%X, addr=%06X\r\n", pkt->msg_typ
 
     fop->msg_type = MSG_TYPE_OLD;   // old protocol, either original or relayed
 
-    bool time_sent = (ognrelay_base && (pkt->msg_type == MSG_TYPE_REL || pkt->msg_type == MSG_TYPE_ORG));
+    bool time_sent = (ognrelay_base && relayed_msg);
           // relayed with timestamp from remote station
 
     /* decrypt packet */
@@ -542,8 +575,10 @@ Serial.printf("received non-relay pkt, msg_type=%X, addr=%06X\r\n", pkt->msg_typ
 
         /* background noise sample sent from remote */
         int8_t rxchan = pkt->ew[2];
-        remote_noise_data[rxchan] += pkt->ew[3];
-        ++remote_noise_count[rxchan];
+        if (rxchan >= 0 && rxchan <= 64 && remote_noise_count[rxchan] < 0x1000) {
+            ++remote_noise_count[rxchan];
+            remote_noise_data[rxchan] += pkt->ew[3];
+        }
     }
 
     // fully decode the packet
@@ -846,8 +881,9 @@ size_t legacy_encode(void* buffer, ufo_t* fop)
         pkt->bec = fop->bec;
 
         /* background noise sample sent from remote */
-        pkt->ew[2] = RF_last_rx_chan;
+        pkt->ew[2] = (RF_have_noise_sample ? RF_last_rx_chan : -1);
         pkt->ew[3] = RF_last_idle_rssi;
+        RF_have_noise_sample = false;
 
         pkt->msg_type = (fop->msg_type == MSG_TYPE_OLD? MSG_TYPE_ORG : MSG_TYPE_REL);
             /* mark as relayed packet with a timestamp */

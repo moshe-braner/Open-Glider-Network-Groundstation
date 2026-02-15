@@ -110,14 +110,17 @@ static short AprsPasscode(const char* theCall)
 
 static bool OGN_APRS_Connect(void)
 {
+    if (ogn_port == 0)   // testing
+        return true;
     if (SoC->WiFi_connect_TCP(ogn_server.c_str(), ogn_port))
         return true;
-    else
-        return false;
+    return false;
 }
 
 static bool OGN_APRS_DisConnect(void)
 {
+    if (ogn_port == 0)   // testing
+        return true;
     if (!SoC->WiFi_disconnect_TCP())
         return true;
     return false;
@@ -125,6 +128,9 @@ static bool OGN_APRS_DisConnect(void)
 
 static int OGN_APRS_check_reg(char* cp) // 0 = unverified // 1 = verified // -1 = wrong message
 {
+    if (ogn_port == 0)   // testing
+        return 1;
+
     String msg = cp;   // convert char array to String
 
     if (msg.indexOf("verified") > -1)
@@ -139,6 +145,8 @@ static int OGN_APRS_check_reg(char* cp) // 0 = unverified // 1 = verified // -1 
 
 bool OGN_APRS_check_Wifi(void)
 {
+    //if (ogn_port == 0)   // testing
+    //    return true;
     if (WiFi.getMode() != WIFI_STA)
         return false;
     if (WiFi.status() != WL_CONNECTED) {
@@ -167,6 +175,11 @@ bool OGN_APRS_check_Wifi(void)
 
 int OGN_APRS_check_messages(void)
 {
+    if (ogn_port == 0) {      // testing
+        aprs_registred = 1;
+        return 1;
+    }
+
     static char RXbuffer[512];  // was malloc()ed
 
 //Serial.println("APRS_check_messages()...");
@@ -477,7 +490,7 @@ void OGN_APRS_Export(void)
                    success = (SoC->WiFi_transmit_TCP(AircraftPacket) != 0);
             if (success) {
 */
-            if (SoC->WiFi_transmit_TCP(AircraftPacket) != 0) {
+            if (ogn_port == 0 || SoC->WiFi_transmit_TCP(AircraftPacket) != 0) {
                 Container[i].waiting = false;
                 Container[i].timereported = OurTime;
                 ++traffic_packets_reported;
@@ -530,7 +543,7 @@ int OGN_APRS_Register(ufo_t* this_aircraft)
         //Serial.println("");
         Logger_send_udp(&LoginPacket);
 
-        if (SoC->WiFi_transmit_TCP(LoginPacket)) {   // <<<
+        if (ogn_port == 0 || SoC->WiFi_transmit_TCP(LoginPacket)) {   // <<<
             aprs_registred = 1;
             return 1;
         }
@@ -610,7 +623,7 @@ bool OGN_APRS_Location(ufo_t* this_aircraft)
     //Serial.println("");
     Logger_send_udp(&RegisterPacket);
 
-    if(SoC->WiFi_transmit_TCP(RegisterPacket))  // <<<
+    if(ogn_port == 0 || SoC->WiFi_transmit_TCP(RegisterPacket))  // <<<
        return true;
 
     Serial.println(F("transmit location to TCP failed"));
@@ -622,7 +635,7 @@ void OGN_APRS_KeepAlive(void)
     String KeepAlivePacket = "#keepalive\r\n";
     //Serial.println(KeepAlivePacket.c_str());
     Logger_send_udp(&KeepAlivePacket);
-    if (SoC->WiFi_transmit_TCP(KeepAlivePacket) == 0)
+    if (ogn_port != 0 && SoC->WiFi_transmit_TCP(KeepAlivePacket) == 0)
         Serial.println(F("transmit keepalive to TCP failed"));
 }
 
@@ -680,6 +693,12 @@ bool OGN_APRS_Status(ufo_t* this_aircraft, bool first_time, String resetReason)
     //StatusPacket += " ";
     StatusPacket += APRS_STAT.platform;
 
+    static uint32_t prev_uptime   = 0;
+    static uint32_t prev_r_uptime = 0x7FFFFFFF;
+
+    bool time_not_synched = ((ognrelay_time || ognreverse_time) && !time_synched);
+    bool report_r_uptime = ((ognrelay_time || ognreverse_time) && remote_uptime != prev_r_uptime && remote_uptime != 0);
+
     int v;
     if (time_synched) {
         v = (int)(10.0 * remote_voltage + 0.5);
@@ -689,7 +708,7 @@ bool OGN_APRS_Status(ufo_t* this_aircraft, bool first_time, String resetReason)
     }
     if (v > 20)
         StatusPacket += " " + String(v/10) + "." + String(v%10) + "V";
-    if (sleep_length == 0 && remote_sleep_length == 0) {
+    if (sleep_length == 0 && remote_sleep_length == 0 && !time_not_synched && !report_r_uptime) {
         StatusPacket += " ";
         // added packets per minute and IDs seen in last hour
         StatusPacket += String(packets_per_minute) + "/min ";
@@ -699,8 +718,6 @@ bool OGN_APRS_Status(ufo_t* this_aircraft, bool first_time, String resetReason)
     // OGNbase specific fields
 
     StatusPacket += " ";
-    static uint32_t prev_uptime   = 0;
-    static uint32_t prev_r_uptime = 0x7FFFFFFF;
     if (first_time) {
         // StatusPacket += "reset_reason_";
         StatusPacket += resetReason;
@@ -720,7 +737,7 @@ bool OGN_APRS_Status(ufo_t* this_aircraft, bool first_time, String resetReason)
         StatusPacket += "_m_sleep";
     } else if ((ognrelay_time || ognreverse_time) && !time_synched) {
         StatusPacket += "time_not_synched";
-    } else if ((ognrelay_time || ognreverse_time) && remote_uptime != prev_r_uptime) {
+    } else if (report_r_uptime) {
         if (remote_uptime < 360) {
             StatusPacket += String(remote_uptime);
             StatusPacket += "_m_r_uptime";
@@ -732,6 +749,11 @@ bool OGN_APRS_Status(ufo_t* this_aircraft, bool first_time, String resetReason)
             StatusPacket += "_d_r_uptime";
         }
         prev_r_uptime = remote_uptime;
+        if (time_synched) {
+            StatusPacket += " ";
+            StatusPacket += String(remote_rssi);
+            StatusPacket += "_rssi";
+        }
     } else if (uptime < 25 || uptime > prev_uptime + 10) {
         if (uptime < 360) {
             StatusPacket += String(uptime);
@@ -759,7 +781,7 @@ bool OGN_APRS_Status(ufo_t* this_aircraft, bool first_time, String resetReason)
     Serial.print(StatusPacket.c_str());
     //Serial.println("");
     Logger_send_udp(&StatusPacket);
-    if (SoC->WiFi_transmit_TCP(StatusPacket) == 0) {
+    if (ogn_port != 0 && SoC->WiFi_transmit_TCP(StatusPacket) == 0) {
         Serial.println(F("transmit status to TCP failed"));   // <<<
         return false;
     }

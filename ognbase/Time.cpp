@@ -71,9 +71,11 @@ uint32_t remote_traffic=0, remote_other=0;
 uint32_t remote_uptime=0;
 uint16_t remote_sleep_length=0;
 uint16_t remote_timesent=0, remote_timerecvd=0, remote_bad=0;
-uint8_t remote_pctrel=0, remote_ack=0, remote_restarts=0, remote_round=0;
-uint8_t remote_sats=0;
-float remote_voltage=0.0;
+uint8_t  remote_pctrel=0, remote_ack=0, remote_restarts=0, remote_round=0;
+uint8_t  remote_sats=0;
+int8_t   remote_rssi=0;
+float   remote_voltage=0.0;
+
 
 uint32_t traffic_packets_recvd = 0;
 uint32_t old_protocol_packets_recvd = 0;
@@ -189,10 +191,17 @@ Serial.printf("send_time: ref_time_ms %d << now %d ??\r\n", ref_time_ms, now_ms)
           pkt->pct_acked = (pctack >> 2);
           pkt->bad_packets = (bad_packets_recvd >> 3);       // >>> could be enscaled
           pkt->restarts = (sync_restarts > 7 ? 7 : sync_restarts);       // >>> could be enscaled
-      } else if (time_client) {  // ognreverse_time
+      } else if (time_client && time_synched) {  // ognreverse_time
           pkt->time_packets = time_packets_recvd;
           pkt->bad_packets = (bad_packets_recvd >> 3);       // >>> could be enscaled
           pkt->restarts = (sync_restarts > 7 ? 7 : sync_restarts);       // >>> could be enscaled
+          if (RF_have_noise_sample) {
+              uint32_t rxchan = (uint32_t) (((int32_t) RF_last_rx_chan) << 24);
+              uint32_t noise  = (uint32_t) (((int32_t) RF_last_idle_rssi) << 16) & 0x00FF0000;
+              pkt->epoch = rxchan | noise | (((uint32_t) OurTime) & 0x0000FFFF);
+              RF_have_noise_sample = false;
+          }
+          // else leave pkt->epoch = OurTime
       }
 
     // } else {   // base station sending time/ack - blank stats fields
@@ -307,6 +316,16 @@ void get_remote_stats(time_relay_packet_t* pkt)
         Serial.printf("Remote battery voltage: %.1f\r\n", remote_voltage);
     /* these stats also displayed in the statistics web page */
     // should also send these stats out via UDP.
+
+    // also collect remote noise if available
+    if (ognrelay_base && time_master && (pkt->epoch & 0xFFFFFF00) != (OurTime & 0xFFFFFF00)) {
+        int8_t rxchan = (int8_t) ((pkt->epoch >> 24) & 0x000000FF);
+        if (rxchan >= 0 && rxchan <= 64 && remote_noise_count[rxchan] < 0x1000) {
+            ++remote_noise_count[rxchan];
+            int8_t noise  = ((pkt->epoch >> 16) & 0x000000FF);
+            remote_noise_data[rxchan] += noise;
+        }
+    }
 }
 
 /* this is called by time_client to process incoming time data */
@@ -348,8 +367,9 @@ Serial.printf("set_our_clock: remote_sleep_length = %d\r\n", remote_sleep_length
         timeOffset -= 1000;
       }
       ref_time_ms = when_synched - timeOffset;   /* time of last PPS in time_master */
-Serial.printf("set_our_clock: ms=%d, ourt=%d, ofst=%d, reft=%d\r\n",
-              when_synched, OurTime, timeOffset, ref_time_ms);
+      remote_rssi = RF_last_rssi;
+      Serial.printf("set_our_clock: ms=%d, ourt=%d, ofst=%d, reft=%d   rssi %d\r\n",
+              when_synched, OurTime, timeOffset, ref_time_ms, remote_rssi);
       //remote_sleep_length = 0;
 
     }
@@ -357,7 +377,7 @@ Serial.printf("set_our_clock: ms=%d, ourt=%d, ofst=%d, reft=%d\r\n",
     if (pkt->msg_type == MSG_TYPE_ACK)
         got_time_ack = true;    /* for time_client, this "sticks" */
 
-    if (ognrelay_base)
+    if (ognrelay_base && time_synched)
         get_remote_stats(pkt);
 
     if (got_time_ack && when_to_switch == 0) {
@@ -393,7 +413,7 @@ void sync_alive_pkt(uint8_t *raw)
 //Serial.printf("sync_alive_pkt: pkt->when_to_switch = %d, when_to_sleep = %d\r\n",
 //pkt->when_to_switch, pkt->when_to_sleep);
 
-    time_t ClientTime;
+    uint32_t MasterTime, ClientTime;
     uint32_t ClientOffset;
     int32_t timediff;
     when_synched = millis();
@@ -412,14 +432,15 @@ Serial.printf("sync_alive_pkt: remote_sleep_length = %d\r\n", remote_sleep_lengt
 
       } else {
 
-        ClientTime = (time_t) pkt->epoch;
+        MasterTime = (OurTime & 0x0000FFFF);      // just check the lower 16 bits
+        ClientTime = (pkt->epoch & 0x0000FFFF);   // so can use the upper 16 bits for noise sample
         ClientOffset = pkt->offset;
         ClientOffset += ADJ_FOR_TRANSMISSION_DELAY;
         if (ClientOffset > 1000) {
           ClientTime += 1;
           ClientOffset -= 1000;
         }
-        if (ClientTime == OurTime - 1) {
+        if (ClientTime == MasterTime - 1) {
           ClientTime += 1;
           ClientOffset -= 1000;
         }
@@ -428,18 +449,19 @@ Serial.printf("sync_alive_pkt: remote_sleep_length = %d\r\n", remote_sleep_lengt
 
         if (delay < 1000) {
           ++ack_packets_recvd;
+          remote_rssi = RF_last_rssi;
           total_delays += delay;
-          Serial.printf("received timesync ack: ms=%d, time=%d, diff=%d ms, avg round %d ms\r\n",
-             when_synched, pkt->epoch, timediff, total_delays/ack_packets_recvd);
-          if (ClientTime != OurTime && time_synched && pkt->epoch != 0 && ! pkt->when_to_switch)
-              Serial.printf("client time: %d != master time: %d ??\r\n", ClientTime, OurTime);
+          Serial.printf("received timesync ack: ms=%d, time=%d, diff=%d ms, avg round %d ms rssi %d\r\n",
+             when_synched, pkt->epoch, timediff, total_delays/ack_packets_recvd, remote_rssi);
+          if (ClientTime != MasterTime && ClientTime > 1 && ClientTime < 0x0FFFE && time_synched)
+              Serial.printf("client time: %x != master time: %x ??\r\n", ClientTime, MasterTime);
         } else if (when_sync_sent > 0) {
           Serial.printf("late time ack received at %d ms after time sent at %d\r\n", when_synched, when_sync_sent);
         } else {
           Serial.println("time ack received before time sent??");
         }
 
-        if (ognrelay_base)
+        if (ognrelay_base && time_synched)
             get_remote_stats(pkt);
       }
     }

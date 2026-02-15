@@ -2,79 +2,128 @@
 #define __FREQPLAN_H__
 
 #include <stdint.h>
-
-//#define TEST_PAW_ON_NICERF_SV610_FW466
+#include <protocol.h>
 
 enum
 {
-  RF_BAND_AUTO = 0,
+  RF_BAND_AUTO = 0,  /* Deprecated - treated as EU */
   RF_BAND_EU   = 1,  /* 868.2 MHz band */
   RF_BAND_US   = 2,  /* 915 MHz band */
   RF_BAND_AU   = 3,  /* 921 MHz band */
-  RF_BAND_NZ   = 4,  /* 869.250 MHz band */
+  RF_BAND_NZ   = 4,  /* 869.2x MHz band */
   RF_BAND_RU   = 5,  /* 868.8 MHz band */
   RF_BAND_CN   = 6,  /* 470 MHz band */
-  RF_BAND_UK   = 7,  /* 869.52 MHz band */
+  RF_BAND_UK   = 7,  /* 869.52 MHz band. Deprecated - treated as EU */
   RF_BAND_IN   = 8,  /* 866.0 MHz band */
   RF_BAND_IL   = 9,  /* 916.2 MHz band */
-  RF_BAND_KR   = 10  /* 920.9 MHz band */
+  RF_BAND_KR   = 10, /* 920.9 MHz band */
+  RF_BAND_COUNT
 };
 
 class FreqPlan
 { public:
-   uint8_t  Plan;        // 1=Europe, 2=USA/Canada, 3=Australia/Chile, 4=New Zealand
+   uint8_t  Protocol;    // 0=Legacy, 1=OGNTP, 2=P3I, 3=ADS-B (1090ES), 4=UAT, 5=FANET, 6=GDL90, 7=Latest, 8=ADS-L
+   uint8_t  Plan;        // 1=Europe, 2=USA/Canada, 3=Australia/Chile, 4=New Zealand, ...
    uint8_t  Channels;    // number of channels
    uint32_t BaseFreq;    // [Hz] base channel (#0) frequency
    uint32_t ChanSepar;   // [Hz] channel spacing
-   uint8_t  MaxTxPower;  // max. EIRP in dBm
+   int8_t   MaxTxPower;  // max. EIRP in dBm
+   uint8_t  Bandwidth;   // FANET only
    static const uint8_t MaxChannels=65;
 
   public:
-   void setPlan(uint8_t NewPlan=0) // preset for a given frequency plan
-   {  Plan=NewPlan;
+   void setPlan(uint8_t NewPlan=0, uint8_t NewProto=RF_PROTOCOL_OGNTP) // preset for a given frequency plan
+   { Protocol=NewProto; Plan=NewPlan;
 
-      switch (Plan)
-      {
-        case RF_BAND_US:
-          { BaseFreq=902200000; ChanSepar=400000; Channels=65; MaxTxPower = 30; } // USA, 902-928 MHz
-          break;
-        case RF_BAND_AU:
-          { BaseFreq=917000000; ChanSepar=400000; Channels=24; MaxTxPower = 30; } // Australia and South America
-          break;
-        case RF_BAND_NZ:
-          { BaseFreq=869250000; ChanSepar=200000; Channels= 1; MaxTxPower = 10; } // New Zealand
-          break;
-        case RF_BAND_RU:
-          { BaseFreq=868800000; ChanSepar=200000; Channels= 1; MaxTxPower = 20; } // Russia
-          break;
-        case RF_BAND_CN:
-          { BaseFreq=470100000; ChanSepar=200000; Channels= 1 /* 18 */; MaxTxPower = 17; } // China, 470-473.6 MHz
-          break;
-        case RF_BAND_UK:
-#if !defined(TEST_PAW_ON_NICERF_SV610_FW466)
-          { BaseFreq=869525000; ChanSepar=200000; Channels= 1; MaxTxPower = 27; } // PilotAware (UK)
-#else
-          { BaseFreq=869920000; ChanSepar=200000; Channels= 1; MaxTxPower = 27; } // Test PAW on NiceRF SV6X0
-#endif
-          break;
-        case RF_BAND_IN:
-          { BaseFreq=866000000; ChanSepar=200000; Channels= 1; MaxTxPower = 30; } // India
-          break;
-        case RF_BAND_IL:
-          { BaseFreq=916200000; ChanSepar=200000; Channels= 1; MaxTxPower = 30; } // Israel
-          break;
-        case RF_BAND_KR:
-          { BaseFreq=920900000; ChanSepar=200000; Channels= 1; MaxTxPower = 23; } // South Korea
-          break;
-        case RF_BAND_EU:
-        default:
-          { BaseFreq=868200000; ChanSepar=200000; Channels= 2; MaxTxPower = 14; } // Europe
-          break;
+     switch (Protocol)
+     {
+      case RF_PROTOCOL_P3I:
+        { BaseFreq= 869525000; ChanSepar= 200000; Channels= 1; MaxTxPower = 27; }  // PilotAware (UK)
+        break;
+      case RF_PROTOCOL_ADSB_1090:
+        { BaseFreq=1090000000; ChanSepar=2000000; Channels= 1; MaxTxPower = -10; }
+        break;
+      case RF_PROTOCOL_ADSB_UAT:
+        { BaseFreq= 978000000; ChanSepar=2000000; Channels= 1; MaxTxPower = -10; }
+        break;
+      case RF_PROTOCOL_FANET:
+        { ChanSepar=400000; Channels= 1; }
+        switch (Plan)
+        {
+          case RF_BAND_US:
+          case RF_BAND_AU:
+          case RF_BAND_NZ: /* ISM 915-928 MHz, https://www.rsm.govt.nz/assets/Uploads/documents/pibs/table-of-radio-spectrum-usage-in-new-zealand-pib-21.pdf */
+          case RF_BAND_CN: /* ? */
+            BaseFreq   = 920800000;
+            Bandwidth  = RF_RX_BANDWIDTH_SS_250KHZ; // BW500
+            MaxTxPower = 15;
+            break;
+          case RF_BAND_IN:
+            BaseFreq   = 866200000;
+            Bandwidth  = RF_RX_BANDWIDTH_SS_125KHZ; // BW250
+            MaxTxPower = 14;
+            break;
+          case RF_BAND_IL:
+            BaseFreq   = 918500000;
+            Bandwidth  = RF_RX_BANDWIDTH_SS_62KHZ;  // BW125
+            MaxTxPower = 15;
+            break;
+          case RF_BAND_KR:
+            BaseFreq   = 923200000;
+            Bandwidth  = RF_RX_BANDWIDTH_SS_62KHZ;  // BW125
+            MaxTxPower = 15;
+            break;
+          case RF_BAND_EU:
+          case RF_BAND_RU:
+          default:
+            BaseFreq   = 868200000;
+            Bandwidth  = RF_RX_BANDWIDTH_SS_125KHZ; // BW250
+            MaxTxPower = 14;
+            break;
+        }
+        break;
+      case RF_PROTOCOL_LEGACY:
+      case RF_PROTOCOL_OGNTP:
+      case RF_PROTOCOL_ADSL:
+      default:
+        switch (Plan)
+        {
+          case RF_BAND_US:
+            { BaseFreq=902200000; ChanSepar=400000; Channels=65; MaxTxPower = 30; } // USA, 902-928 MHz
+            break;
+          case RF_BAND_AU:
+            { BaseFreq=917000000; ChanSepar=400000; Channels=24; MaxTxPower = 30; } // Australia and South America
+            break;
+          case RF_BAND_NZ:
+            //{ BaseFreq=869250000; ChanSepar=200000; Channels= 1; MaxTxPower = 10; } // New Zealand
+            { BaseFreq=869200000; ChanSepar=200000; Channels= 1; MaxTxPower = 10; } // New Zealand
+            break;
+          case RF_BAND_RU:
+            { BaseFreq=868800000; ChanSepar=200000; Channels= 1; MaxTxPower = 20; } // Russia
+            break;
+          case RF_BAND_CN:
+            { BaseFreq=470100000; ChanSepar=200000; Channels= 1 /* 18 */; MaxTxPower = 17; } // China, 470-473.6 MHz
+            break;
+          case RF_BAND_IN:
+            { BaseFreq=866000000; ChanSepar=200000; Channels= 1; MaxTxPower = 30; } // India
+            break;
+          case RF_BAND_IL:
+            { BaseFreq=916200000; ChanSepar=200000; Channels= 1; MaxTxPower = 30; } // Israel
+            break;
+          case RF_BAND_KR:
+            { BaseFreq=920900000; ChanSepar=200000; Channels= 1; MaxTxPower = 23; } // South Korea
+            break;
+          case RF_BAND_EU:
+          default: /* AUTO, UK */
+            { BaseFreq=868200000; ChanSepar=200000; Channels= 2; MaxTxPower = 14; } // Europe
+            break;
+        }
+        break;
       }
    }
 
-   void setPlan(int32_t Latitude, int32_t Longitude)
-   { setPlan(calcPlan(Latitude, Longitude)); }
+   void setPlan(int32_t Latitude, int32_t Longitude, uint8_t NewProto=RF_PROTOCOL_OGNTP)
+   { setPlan(calcPlan(Latitude, Longitude), NewProto); }
 
    const char *getPlanName(void) { return getPlanName(Plan); }
 
@@ -82,7 +131,7 @@ class FreqPlan
    { static const char *Name[11] = { "Default", "Europe/Africa",
        "USA/Canada", "Australia/South America", "New Zealand",
        "Russia", "China", "PilotAware (UK)", "India", "Israel", "South Korea" } ;
-     if(Plan>RF_BAND_KR) return 0;
+     if(Plan >= RF_BAND_COUNT) return 0;
      return Name[Plan]; }
 
    uint8_t getChannel  (uint32_t Time, uint8_t Slot=0, uint8_t OGN=1) const // OGN-tracker or FLARM, UTC time, slot: 0 or 1

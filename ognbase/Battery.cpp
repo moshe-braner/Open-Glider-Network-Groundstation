@@ -37,7 +37,10 @@ void Battery_setup()
 
 float Battery_voltage()
 {
-    return SoC->Battery_voltage();
+    float volts = SoC->Battery_voltage();
+    if (volts < 2.0)
+        volts = ESP32_VbusVoltage();
+    return volts;
 }
 
 /* low battery voltage threshold */

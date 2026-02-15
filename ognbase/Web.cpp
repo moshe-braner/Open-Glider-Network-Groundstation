@@ -56,8 +56,6 @@ AsyncWebSocket ws("/ws");
 
 AsyncWebSocketClient* globalClient = NULL;
 
-size_t content_len;
-
 static const char upload_templ[] PROGMEM =
 "<html>\
  <head>\
@@ -174,6 +172,11 @@ void handleUpload(AsyncWebServerRequest* request)
       listfiles = false;
   }
   const char *msg;
+#if defined(ESP32)
+  if (ttgo_on_tbeam)
+      msg = "non-T-Beam binary running on T-Beam";
+  else
+#endif
   if (config_done < -4)
       msg = "could not open SPIFFS file system";
   else if (config_done == -4)
@@ -320,6 +323,9 @@ void handleDnldlog(AsyncWebServerRequest* request)
 
 void handleDoUpdate(AsyncWebServerRequest* request, const String& filename, size_t index, uint8_t* data, size_t len, bool final)
 {
+    static int ota_counter;
+    static size_t ota_bytes;
+    static size_t content_len;
     String msg;
 
     if (!index)
@@ -330,14 +336,24 @@ void handleDoUpdate(AsyncWebServerRequest* request, const String& filename, size
        //SPIFFS.format();
         
         content_len = request->contentLength();
+        Serial.print("OTA update: content_len ");
+        Serial.println(content_len);
+        ota_counter = 0;
+        ota_bytes = 0;
         // if filename includes spiffs, update the spiffs partition
         int cmd = (filename.indexOf("spiffs") > -1) ? U_PART : U_FLASH;
-
         if (!Update.begin(UPDATE_SIZE_UNKNOWN, cmd))
         {
-
             Update.printError(Serial);
         }
+    }
+
+    ++ota_counter;
+    ota_bytes += len;
+    if ((ota_counter & 0x3F) == 0) {
+        char buf[16];
+        snprintf(buf, 16, "update %d%%...", (100 * ota_bytes)/(content_len+1));
+        OLED_write(buf, 0, 27, true);
     }
 
     if (Update.write(data, len) != len)
@@ -347,7 +363,9 @@ void handleDoUpdate(AsyncWebServerRequest* request, const String& filename, size
 
     if (final)
     {
-        AsyncWebServerResponse* response = request->beginResponse(302, "text/plain", "Please wait while the device reboots");
+        Serial.println("\r\nOTA finalizing...");
+        AsyncWebServerResponse* response = request->beginResponse(302,
+             "text/plain", "Please wait while the device reboots");
         response->addHeader("Refresh", "20");
         response->addHeader("Location", "/");
         request->send(response);
@@ -355,10 +373,12 @@ void handleDoUpdate(AsyncWebServerRequest* request, const String& filename, size
             Update.printError(Serial);
         else
         {
+            OLED_write("rebooting...", 0, 27, true);
             DebugLogWrite("firmware update restart");
-            delay(10000);
-            // ESP.restart();
+            delay(5000);
             RF_Shutdown();
+            WiFi_fini();
+            delay(500);
             SoC->reset();
         }
     }
@@ -607,31 +627,14 @@ void mini_server()
 
 int ssid_num = 0;
 
-void Web_setup(ufo_t* this_aircraft)
+bool status_page_setup()
 {
-    Serial.print("Free memory entering Web_setup(): ");
-    Serial.println(ESP.getFreeHeap());
-
-    wserver = new AsyncWebServer(webserver_port);
-    if (wserver == NULL) {
-        Serial.println("failed to create web server object");
-        return;
-    }
-
-    if (!SPIFFS.begin(true))
-    {
-        index_msg = "An Error has occurred while mounting SPIFFS";
-        Serial.println(index_msg);
-        mini_server();
-        return;
-    }
 
     if (!SPIFFS.exists("/index.html"))
     {
         index_msg = "index.html does not exist";
         Serial.println(index_msg);
-        mini_server();
-        return;
+        return false;
     }
 
     File file = SPIFFS.open("/index.html", "r");
@@ -640,8 +643,7 @@ void Web_setup(ufo_t* this_aircraft)
         index_msg = "Error reading index.html - erased";
         Serial.println(index_msg);
         SPIFFS.remove("/index.html");
-        mini_server();
-        return;
+        return false;
     }
 
     yield();
@@ -649,13 +651,12 @@ void Web_setup(ufo_t* this_aircraft)
     ws.onEvent(onWsEvent);
     wserver->addHandler(&ws);
 
-    size_t filesize   = file.size();
-    char*  index_html = (char *) malloc(filesize + 1);
+    size_t filesize = file.size();
+    char* index_html = (char *) malloc(filesize + 1);
     if (index_html == NULL) {
         index_msg = "failed to allocate RAM for reading index.html";
         Serial.println(index_msg);
-        mini_server();
-        return;
+        return false;
     }
 
     file.read((uint8_t *)index_html, filesize);
@@ -682,19 +683,17 @@ void Web_setup(ufo_t* this_aircraft)
         delay(1000);
         SPIFFS.remove("/index.html");
         free(index_html);
-        mini_server();
-        return;
+        return false;
     }
 
-    char*  offset;
+    char* offset = NULL;
     size_t size = 12300;    // currently fits in under 9000
-    char*  Settings_temp = (char *) malloc(size);
+    char* Settings_temp = (char *) malloc(size);
     if (Settings_temp == NULL) {
         index_msg = "failed to allocate RAM for web page";
         Serial.println(index_msg);
         free(index_html);
-        mini_server();
-        return;
+        return false;
     }
 
     Serial.print("Free memory after Web_setup() malloc()s: ");
@@ -704,7 +703,7 @@ void Web_setup(ufo_t* this_aircraft)
 
     offset = Settings_temp;
 
-    String station_addr = String(this_aircraft->addr, HEX);
+    String station_addr = String(ThisAircraft.addr, HEX);
     station_addr.toUpperCase();
 
     // to_string() formats to 6 decimals
@@ -842,18 +841,6 @@ void Web_setup(ufo_t* this_aircraft)
              "hidekey", "hidekey"
              );
 
-    ssid_num = 0;
-    for (int sn=0; sn<5; sn++) {
-       if (WiFi.SSID() == ogn_ssid[sn]) {
-           ssid_num = sn;   // using the SSID from this slot
-Serial.print("using SSID #");
-Serial.println(ssid_num);
-          // if new SSID entered later, overwrite this same slot
-       }
-    }
-
-    yield();
-
     size_t len = strlen(offset);
     if (len+2 < size) {
         Serial.print("Size of web page: ");
@@ -864,15 +851,68 @@ Serial.println(ssid_num);
         free(Settings_temp);
         free(index_html);
         index_msg = "allocated RAM insufficient for web page";
+        return false;
+    }
+
+    yield();
+
+    //String status_page_string = String(Settings_temp);
+
+    wserver->on("/", HTTP_GET, [Settings_temp](AsyncWebServerRequest* request){
+        request->send(200, "text/html", Settings_temp);
+    });
+
+    free(Settings_temp);
+    free(index_html);
+
+    return true;
+}
+
+void Web_setup(ufo_t* this_aircraft)
+{
+    Serial.print("Free memory entering Web_setup(): ");
+    Serial.println(ESP.getFreeHeap());
+
+    wserver = new AsyncWebServer(webserver_port);
+    if (wserver == NULL) {
+        Serial.println("failed to create web server object");
+        return;
+    }
+
+#if defined(ESP32)
+    if (ttgo_on_tbeam)
+    {
+        index_msg = "Please load TBEAM firmware";
+        Serial.println(index_msg);
+        mini_server();
+        OLED_write(index_msg, 0, 27, true);
+        delay(9000);
+        return;
+    }
+#endif
+
+    if (!SPIFFS.begin(true))
+    {
+        index_msg = "An Error has occurred while mounting SPIFFS";
+        Serial.println(index_msg);
         mini_server();
         return;
     }
 
-    String html = String(offset);
+    if (status_page_setup() == false) {
+        mini_server();
+        return;
+    }
 
-    wserver->on("/", HTTP_GET, [html](AsyncWebServerRequest* request){
-        request->send(200, "text/html", html);
-    });
+    ssid_num = 0;
+    for (int sn=0; sn<5; sn++) {
+       if (WiFi.SSID() == ogn_ssid[sn]) {
+           ssid_num = sn;   // using the SSID from this slot
+Serial.print("using SSID #");
+Serial.println(ssid_num);
+          // if new SSID entered later, overwrite this same slot
+       }
+    }
 
     // Route to load style.css file
     wserver->on("/style.css", HTTP_GET, [](AsyncWebServerRequest* request){
@@ -1132,8 +1172,6 @@ Serial.println(ssid_num);
     });
 
     SoC->swSer_enableRx(true);
-    free(Settings_temp);
-    free(index_html);
 
     yield();
 
@@ -1186,6 +1224,19 @@ void Web_loop(void)
         values += "_";
         values += numtracked;
         globalClient->text(values);
+    }
+
+    if (ogn_mobile) {
+        static bool mobile_located = false;
+        if (mobile_located == false && isValidGNSSFix()) {
+            mobile_located = true;
+            // rebuild status page - to show the lat/lon
+            if (status_page_setup() == false) {
+                wserver->on("/", HTTP_GET, [](AsyncWebServerRequest* request){
+                  handleUpload(request);
+                });
+            }
+        }
     }
 
     // update_stats();

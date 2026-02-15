@@ -166,6 +166,8 @@ extern Adafruit_NeoPixel strip;
 // 1st I2C bus on the T-Beam
 #define SOC_GPIO_PIN_TBEAM_SDA          13
 #define SOC_GPIO_PIN_TBEAM_SCL          2
+// pin to use for solar shunt
+#define TBEAM_SOLAR_SHUNT               25
 
 /* TTGO T-Watch section */
 // GPS module
@@ -235,6 +237,7 @@ extern Adafruit_NeoPixel strip;
 #define T3S3_SX12xx_MISO    3
 #define T3S3_SX1262_IO1    33
 #define T3S3_SX1262_BUSY   34
+#define T3S3_SOLAR_SHUNT   16
 
 #define PAXCOUNTER_GREEN_LED     25   // active high
 
@@ -249,11 +252,23 @@ void turn_LED_off(void);
 
 void turn_GNSS_on(void);
 void turn_GNSS_off(void);
+
+void charge_limit(void);
+void solar_shunt(void);
 #endif
 
-#if defined(T3S3) || defined(TTGO)
+#if defined(TTGO)
 void green_LED(bool state);
 #endif
+
+extern bool ttgo_on_tbeam;
+
+#if defined(T3S3)
+void green_LED(bool state);
+void solar_shunt(void);
+#endif
+
+float ESP32_VbusVoltage();   // should fold into SoC
 
 void ESP32_post_setup(void);
 
@@ -308,8 +323,8 @@ struct rst_info
 
 #define EXCLUDE_CC13XX
 
-#define POWER_SAVING_WIFI_TIMEOUT 600
-                 /* 600 seconds = 10 minutes */  // was 600000UL ms.
+#define POWER_SAVING_WIFI_TIMEOUT 1200
+                 /* 1200 seconds = 20 minutes */  // was 600000UL ms.
 
 #endif /* PLATFORM_ESP32_H */
 

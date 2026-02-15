@@ -85,6 +85,8 @@ volatile bool       PMU_Irq        = false;
 
 static bool GPIO_21_22_are_busy = false;
 
+bool ttgo_on_tbeam = false;    // indicates running the wrong binary
+
 static union
 {
     uint8_t efuse_mac[6];
@@ -193,7 +195,11 @@ static void ESP32_setup()
         case MakeFlashId(BOYA_ID, BOYA_BY25Q32AL):
         default:
           hw_info.model = SOFTRF_MODEL_PRIME_MK2;
+#if defined(TBEAM)
           heap_caps_malloc_extmem_enable(8000);    // <<< try and keep the "dense" BEC table in regular RAM
+#else
+          ttgo_on_tbeam = true;
+#endif
           break;
 #elif defined(CONFIG_IDF_TARGET_ESP32S3)
 #if defined(T3S3)
@@ -298,6 +304,7 @@ static void ESP32_setup()
           hw_info.revision = 8;
           hw_info.pmu = PMU_AXP192;
 
+          axp_xxx.setChargingTargetVoltage(AXP202_TARGET_VOL_4_2V);
           axp_xxx.setChgLEDMode(AXP20X_LED_LOW_LEVEL);
 
           axp_xxx.setPowerOutPut(AXP192_LDO2,  AXP202_ON);
@@ -347,6 +354,7 @@ static void ESP32_setup()
             axp_2xxx.enableALDO2();
             axp_2xxx.enableALDO3();
 
+            axp_2xxx.setChargeTargetVoltage(XPOWERS_AXP2101_CHG_VOL_4V2);
             axp_2xxx.setChargingLedMode(XPOWERS_CHG_LED_ON);
 
             pinMode(SOC_GPIO_PIN_TBEAM_V08_PMU_IRQ, INPUT /* INPUT_PULLUP */);
@@ -377,7 +385,10 @@ static void ESP32_setup()
 
         // set up 2nd I2C port - in case OLED is actually there
         Wire.begin(SOC_GPIO_PIN_TBEAM_SDA, SOC_GPIO_PIN_TBEAM_SCL);
-        
+
+        pinMode(TBEAM_SOLAR_SHUNT, OUTPUT);
+        digitalWrite(TBEAM_SOLAR_SHUNT, LOW);
+
     } else {
         // other than SOFTRF_MODEL_PRIME_MK2 - namely the TTGO Paxcounter or T3S3
         // initialize Wire1 for the OLED library
@@ -386,6 +397,8 @@ static void ESP32_setup()
         Wire1.begin(T3S3_OLED_PIN_SDA, T3S3_OLED_PIN_SCL);
         pinMode(T3S3_GREEN_LED, OUTPUT);
         digitalWrite(T3S3_GREEN_LED, LOW);
+        pinMode(T3S3_SOLAR_SHUNT, OUTPUT);
+        digitalWrite(T3S3_SOLAR_SHUNT, LOW);
 #elif defined(TTGO)
         Wire1.begin(TTGO_V2_OLED_PIN_SDA, TTGO_V2_OLED_PIN_SCL);
         pinMode(PAXCOUNTER_GREEN_LED, OUTPUT);
@@ -1226,8 +1239,66 @@ static float ESP32_Battery_voltage()
       break;
     }
 
-    return voltage * 0.001;
+    return voltage * 0.001f;
 }
+
+float ESP32_VbusVoltage()
+{
+    float voltage;
+
+    switch (hw_info.pmu)
+    {
+    case PMU_AXP192:
+    case PMU_AXP202:
+      voltage = 0.001f * (float)axp_xxx.getVbusVoltage();
+      break;
+    case PMU_AXP2101:
+      voltage = 0.001f * (float)axp_2xxx.getVbusVoltage();
+      break;
+    case PMU_NONE:
+    default:
+      voltage = 0.0;
+      break;
+    }
+    return voltage;
+}
+
+#if defined(TBEAM)
+void charge_limit()
+{
+    if (ognvoltage_limit && hw_info.model == SOFTRF_MODEL_PRIME_MK2) {
+      if (hw_info.pmu == PMU_AXP2101)
+        axp_2xxx.setChargeTargetVoltage(XPOWERS_AXP2101_CHG_VOL_4V);
+      if (hw_info.pmu == PMU_AXP192)
+        axp_xxx.setChargingTargetVoltage(AXP202_TARGET_VOL_4_1V);     // 4V not available
+    }
+}
+
+void solar_shunt()
+{
+    if (ognvoltage_limit && hw_info.model == SOFTRF_MODEL_PRIME_MK2) {
+        //if (hw_info.pmu == PMU_NONE || hw_info.pmu == PMU_AXP192) {
+        // do this for AXP2101 too, in case of external battery
+            if (ESP32_Battery_voltage() > 4.0)
+                digitalWrite(TBEAM_SOLAR_SHUNT, HIGH);
+            else
+                digitalWrite(TBEAM_SOLAR_SHUNT, LOW);
+        //}
+    }
+}
+#endif
+
+#if defined(T3S3)
+void solar_shunt()
+{
+    if (ognvoltage_limit && hw_info.model == OGNBASE_MODEL_T3S3) {
+        if (ESP32_Battery_voltage() > 4.0)
+            digitalWrite(T3S3_SOLAR_SHUNT, HIGH);
+        else
+            digitalWrite(T3S3_SOLAR_SHUNT, LOW);
+    }
+}
+#endif
 
 static void IRAM_ATTR ESP32_GNSS_PPS_Interrupt_handler()
 {

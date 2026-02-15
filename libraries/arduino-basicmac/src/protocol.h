@@ -21,14 +21,16 @@
 
 enum
 {
-	RF_PROTOCOL_LEGACY,    /* Air V6 */
-	RF_PROTOCOL_OGNTP,     /* Open Glider Network tracker */
-	RF_PROTOCOL_P3I,       /* PilotAware */
-	RF_PROTOCOL_ADSB_1090, /* ADS-B 1090ES */
-	RF_PROTOCOL_ADSB_UAT,  /* ADS-B UAT */
-	RF_PROTOCOL_FANET,     /* Skytraxx */
-	RF_PROTOCOL_GDL90,     /* from external device */
-	RF_PROTOCOL_LATEST     /* new 2024 protocol */
+	RF_PROTOCOL_LEGACY    = 0,    /* Air V6 */
+	RF_PROTOCOL_OGNTP     = 1,    /* Open Glider Network tracker */
+	RF_PROTOCOL_P3I       = 2,    /* PilotAware */
+	RF_PROTOCOL_ADSB_1090 = 3,    /* ADS-B 1090ES */
+	RF_PROTOCOL_ADSB_UAT  = 4,    /* ADS-B UAT */
+	RF_PROTOCOL_FANET     = 5,    /* Skytraxx */
+	RF_PROTOCOL_GDL90     = 6,    /* from external device */
+	RF_PROTOCOL_LATEST    = 7,    /* new 2024 protocol */
+	RF_PROTOCOL_ADSL      = 8,    /* ADS-L on OGNTP frequency */
+	RF_PROTOCOL_NONE = 255
 };
 
 enum
@@ -52,7 +54,8 @@ enum
 	RF_CHECKSUM_TYPE_CCITT_1D02,
 	RF_CHECKSUM_TYPE_GALLAGER,
 	RF_CHECKSUM_TYPE_CRC8_107,
-	RF_CHECKSUM_TYPE_RS
+	RF_CHECKSUM_TYPE_RS,
+	RF_CHECKSUM_TYPE_CRC_MODES
 };
 
 enum
@@ -64,7 +67,7 @@ enum
 
 enum
 {
-	RF_FREQUENCY_DEVIATION_19_2KHZ,
+	RF_FREQUENCY_DEVIATION_12_5KHZ,
 	RF_FREQUENCY_DEVIATION_25KHZ,
 	RF_FREQUENCY_DEVIATION_50KHZ,
 	RF_FREQUENCY_DEVIATION_625KHZ
@@ -87,6 +90,7 @@ enum
 enum
 {
 	RF_RX_BANDWIDTH_SS_50KHZ,
+	RF_RX_BANDWIDTH_SS_62KHZ,
 	RF_RX_BANDWIDTH_SS_100KHZ,
 	RF_RX_BANDWIDTH_SS_125KHZ,
 	RF_RX_BANDWIDTH_SS_166KHZ,

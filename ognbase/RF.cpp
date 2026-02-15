@@ -56,9 +56,11 @@ uint16_t noise_count[65];
 int32_t remote_noise_data[65];
 uint16_t remote_noise_count[65];
 
+uint32_t RF_last_crc = 0;
 int8_t RF_last_rssi = 0;
 int8_t RF_last_rx_chan = 0;
-int8_t RF_last_idle_rssi = -100;
+int8_t RF_last_idle_rssi = 0;
+bool RF_have_noise_sample = false;
 int8_t avg_idle_rssi = -100;    // running average used for SNR calc
 int8_t RF_last_snr  = 0;
 int8_t RF_last_bec  = 0;
@@ -95,6 +97,32 @@ static void sx12xx_transmit(void);
 
 static void sx12xx_shutdown(void);
 
+/* typedef struct rfchip_ops_struct
+{
+  byte type;
+  const char name[8];
+  bool (* probe)();
+  void (* setup)();
+  void (* channel)(uint8_t);
+  bool (* receive)();
+  void (* transmit)();
+  void (* shutdown)();
+} rfchip_ops_t; */
+
+void null_void() { };
+void null_void1(uint8_t c) { };
+bool null_bool() { return false; };
+
+const rfchip_ops_t null_ops = {
+    RF_IC_NONE,
+    "NONE",
+    null_bool,
+    null_void,
+    null_void1,
+    null_bool,
+    null_void,
+    null_void
+};
 
 const rfchip_ops_t sx1276_ops = {
     RF_IC_SX1276,
@@ -106,7 +134,7 @@ const rfchip_ops_t sx1276_ops = {
     sx12xx_transmit,
     sx12xx_shutdown
 };
-#if defined(USE_BASICMAC)
+
 const rfchip_ops_t sx1262_ops = {
     RF_IC_SX1262,
     "SX1262",
@@ -117,7 +145,6 @@ const rfchip_ops_t sx1262_ops = {
     sx12xx_transmit,
     sx12xx_shutdown
 };
-#endif /* USE_BASICMAC */
 
 String Bin2Hex(byte* buffer, size_t size)
 {
@@ -168,7 +195,10 @@ byte RF_setup(void)
             Serial.println(F(" RFIC is detected."));
         }
         else
+        {
             Serial.println(F("WARNING! None of supported RFICs is detected!"));
+            rf_chip   = &null_ops;
+        }
     }
 
     RF_FreqPlan.setPlan(ogn_band);
@@ -216,7 +246,7 @@ byte RF_setup(void)
         return RF_IC_NONE;
 }
 
-uint8_t current_slot = 0;
+uint8_t RF_current_slot = 0;
 uint8_t txchan = 0;
 uint8_t rxchan = 0;
 uint32_t RF_OK_until = 0;
@@ -310,7 +340,7 @@ void RF_loop()
 
     if (ms_since_pps >= 300 && ms_since_pps < 800) {
 
-      current_slot = 0;
+      RF_current_slot = 0;
       RF_OK_until  = ref_time_ms + 800;
       TxEndMarker  = ref_time_ms + 795;
       TxTimeMarker = ref_time_ms + 400 + SoC->random(0, 395);
@@ -319,7 +349,7 @@ void RF_loop()
 
     } else if (ms_since_pps >= 800) {
 
-      current_slot = 1;
+      RF_current_slot = 1;
       RF_OK_until  = ref_time_ms + 1300;
       TxEndMarker  = ref_time_ms + 1195;
       TxTimeMarker = ref_time_ms + 800 + SoC->random(0, 395);
@@ -328,7 +358,7 @@ void RF_loop()
 
     } else {  // if (ms_since_pps < 300) - should rarely happen since OK_until 1300
 
-      current_slot = 1;
+      RF_current_slot = 1;
       /* channel does not change at PPS rollover in middle of slot 1 */
       RF_OK_until  = ref_time_ms + 300;
       TxTimeMarker = RF_OK_until;         // do not transmit until next slot
@@ -339,18 +369,29 @@ void RF_loop()
     /* Use OGN channel for relay from remote to base */
 
     if (ognrelay_enable) {
-      rxchan = RF_FreqPlan.getChannel(RF_time, current_slot, 0);
-      txchan = RF_FreqPlan.getChannel(RF_time, current_slot, 1);
+      rxchan = RF_FreqPlan.getChannel(RF_time, RF_current_slot, 0);      // rx on FLARM freq
+      if (RF_current_slot == 0 && (RF_time & 0x07) == 0) {               // once every 8 seconds
+          txchan = rxchan;
+          TxTimeMarker = TxEndMarker;                                    // do not transmit
+      } else {
+          txchan = RF_FreqPlan.getChannel(RF_time, RF_current_slot, 1);  // tx on OGNTP freq
+      }
     } else if (ognrelay_base) {
-      rxchan = RF_FreqPlan.getChannel(RF_time, current_slot, 1);
-      txchan = RF_FreqPlan.getChannel(RF_time, current_slot, 0);
-    } else {
-      rxchan = RF_FreqPlan.getChannel(RF_time, current_slot, 0);
-      txchan = rxchan;
+      txchan = RF_FreqPlan.getChannel(RF_time, RF_current_slot, 0);      // tx on FLARM freq
+      if (RF_current_slot == 0 && (RF_time & 0x07) == 0) {               // once every 8 seconds
+          rxchan = txchan;                                               // listen to FLARMs directly
+          TxTimeMarker = TxEndMarker;                                    // and do not transmit
+      } else {
+          rxchan = RF_FreqPlan.getChannel(RF_time, RF_current_slot, 1);  // rx on OGNTP freq
+      }
+    } else {   // single-station
+        rxchan = RF_FreqPlan.getChannel(RF_time, RF_current_slot, 0);    // FLARM freq, rx only
+        txchan = rxchan;
+        TxTimeMarker = TxEndMarker;
     }
 
 //Serial.printf("rxch %d, txch %d, Slot %d at %d s + %d ms, tx ok %d - %d, good to %d\r\n",
-//rxchan, txchan, current_slot, OurTime, ms_since_pps, TxTimeMarker, TxEndMarker, RF_OK_until);
+//rxchan, txchan, RF_current_slot, OurTime, ms_since_pps, TxTimeMarker, TxEndMarker, RF_OK_until);
 }
 
 bool RF_TX_ready()
@@ -447,7 +488,8 @@ bool RF_Receive(void)
         rval = rf_chip->receive();
 
 //if (rval)
-//Serial.printf("rx on ch %d at %d s + %d ms\r\n", rxchan, OurTime, millis()-ref_time_ms);
+//Serial.printf("rx at %d ms rxchan=%d (txchan=%d) RSSI=%d\r\n", millis()-ref_time_ms, rxchan, txchan, RF_last_rssi);
+//Serial.printf("rx on ch %d at %d s + %d ms (txchan=%d)\r\n", rxchan, OurTime, millis()-ref_time_ms, txchan);
 
     }
 
@@ -722,9 +764,9 @@ static void sx12xx_setup()
             break;
     }
 
-    switch (settings->txpower)
-    {
-        case RF_TX_POWER_FULL:
+    //switch (settings->txpower)
+    //{
+    //    case RF_TX_POWER_FULL:
 
             /* Load regional max. EIRP at first */
             LMIC.txpow = RF_FreqPlan.MaxTxPower;
@@ -740,6 +782,8 @@ static void sx12xx_setup()
             if (LMIC.txpow > 20)
                 LMIC.txpow = 20;
 
+            if (ogn_port == 0)   // testing of 2-station setup at short range
+                LMIC.txpow = 2;
 #if 1
             /*
              * Enforce Tx power limit until confirmation
@@ -749,13 +793,13 @@ static void sx12xx_setup()
             if (LMIC.txpow > 17)
                 LMIC.txpow = 17;
 #endif
-            break;
-        case RF_TX_POWER_OFF:
-        case RF_TX_POWER_LOW:
-        default:
-            LMIC.txpow = 2; /* 2 dBm is minimum for RFM95W on PA_BOOST pin */
-            break;
-    }
+    //        break;
+    //    case RF_TX_POWER_OFF:
+    //    case RF_TX_POWER_LOW:
+    //    default:
+    //        LMIC.txpow = 2; /* 2 dBm is minimum for RFM95W on PA_BOOST pin */
+    //        break;
+    //}
 }
 
 static void sx12xx_setvars()
@@ -800,7 +844,6 @@ static void sx12xx_setvars()
 
 static void get_idle_rssi()
 {
-    static int8_t last_rssi = 0;   // queue of one
     static uint32_t next_ms = 0;
     uint32_t now_ms = millis();
     if (now_ms < next_ms)
@@ -814,35 +857,26 @@ static void get_idle_rssi()
     int8_t rssi = -(int)(noise>>1);   // RSSI as dBm
     // once packet reception starts, apparently the sx1276 RSSI register
     //    returns signal strength at first, and zero later
-    //if (rssi == 0) {
-        // packet has been received
-        //if (testmode_enable) {
-        //    Serial.print("rssi=0, avg_rssi=");
-        //    Serial.print((int)avg_idle_rssi);
-        //    Serial.print(", last_rssi=");
-        //    Serial.println((int)last_rssi);
-        //}
-        // discard previous reading (perhaps from during packet reception):
-        // - achieved by setting last_rssi = rssi = 0 below
-    //}
-    if (rssi != 0 && last_rssi != 0) {
-        if (noise_sampling && noise_count[rxchan] < 0x1000) {
-            bool take_sample = true;
-            if (noise_sampling == 1) {
-                // only sample in the idle time between slots 1 & 0 
-                uint32_t ms_since_pps = now_ms - ref_time_ms;
-                take_sample = (ms_since_pps > 240 && ms_since_pps < 390);
-            }
-            if (take_sample) {
-                noise_data[rxchan] += last_rssi;
-                ++noise_count[rxchan];
-            }
+    if (rssi != 0 && RF_last_idle_rssi != 0) {
+        avg_idle_rssi = ((3*avg_idle_rssi + RF_last_idle_rssi) >> 2);   // running average
+        bool take_sample = false;
+        if (noise_sampling == 2) {
+            take_sample = true;
+        } else if (noise_sampling == 1) {
+            // only sample in the idle time between slots 1 & 0 
+            uint32_t ms_since_pps = now_ms - ref_time_ms;
+            take_sample = (ms_since_pps > 240 && ms_since_pps < 390);
         }
-        avg_idle_rssi = ((3*avg_idle_rssi + last_rssi) >> 2);   // running average
+        if (take_sample) {
+            if (noise_count[rxchan] < 0x1000) {
+                ++noise_count[rxchan];
+                noise_data[rxchan] += rssi;
+            }
+            RF_last_rx_chan = rxchan;
+            RF_last_idle_rssi = rssi;     // used for sending from remote to base
+            RF_have_noise_sample = true;
+        }
     }
-    RF_last_idle_rssi = last_rssi;     // used for sending from remote to base
-    RF_last_rx_chan = rxchan;
-    last_rssi = rssi;             // used for sample & averaging next time
 }
 
 static bool sx12xx_receive()
@@ -1090,6 +1124,7 @@ static void sx12xx_rx_func(osjob_t* job)
 #endif
             if (crc16 == pkt_crc16) {
                 sx12xx_receive_complete = true;
+                RF_last_crc = crc16;
                 RF_last_bec = 0;
             } else {
                 ++packets_failed_crc;

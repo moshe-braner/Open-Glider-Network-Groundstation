@@ -130,6 +130,7 @@ uint8_t RF_Payload_Size(uint8_t);
 extern byte TxBuffer[MAX_PKT_SIZE], RxBuffer[MAX_PKT_SIZE];
 extern uint32_t TxTimeMarker;
 extern time_t RF_time;
+extern uint8_t RF_current_slot;
 
 extern uint32_t tx_packets_counter;
 extern uint32_t rx_packets_counter;
@@ -142,12 +143,14 @@ extern bool                (* protocol_decode)(void *, ufo_t *, ufo_t *);
 extern uint32_t packets_failed_crc;
 extern uint32_t packets_corrected;
 
+extern uint32_t RF_last_crc;
 extern int8_t RF_last_rssi;
 extern int8_t RF_last_snr;
 extern int8_t RF_last_bec;
 
 extern int8_t RF_last_rx_chan;
 extern int8_t RF_last_idle_rssi;
+extern bool RF_have_noise_sample;
 
 extern int32_t noise_data[65];
 extern uint16_t noise_count[65];

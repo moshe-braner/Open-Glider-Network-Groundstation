@@ -44,7 +44,7 @@
 
 #include "version.h"
 
-#define SOFTRF_FIRMWARE_VERSION "MB147"   // _VERSION
+#define SOFTRF_FIRMWARE_VERSION "MB148"   // _VERSION
 #define SOFTRF_IDENT            "OGNB-"
 #define OGNBASE_HTML_VERSION    "MB107"
 
@@ -171,6 +171,7 @@ typedef struct UFO
 
     float geoid_separation; /* metres */
     uint16_t hdop;          /* cm */
+    uint32_t last_crc;
     int8_t rssi;
     int8_t snr;             // computed from RSSIs during and after reception
     int8_t bec;             // number of bits corrected

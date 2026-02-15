@@ -119,6 +119,9 @@ bool ognreverse_time = false;    /* if true = relay time from base to remote */
 bool ogn_gnsstime = false;       /* if true = use GNSS time rather than NTP */
 uint32_t ognrelay_key = 12345;    /* must be same in both stations for relay_time */
 
+bool ognvoltage_limit = true;    /* if true then try and limit battery charge voltage to 4.0 */
+    // at this point this is always true, not changeable via the config file
+
 // time-relay (derived)
 bool time_master = false;        /* if true = this station sends time */
 bool time_client = false;        /* if true = this station receives time */
@@ -206,9 +209,20 @@ bool OGN_read_config(void)
     }
 #endif
     else{
-      uint8_t cardType = SD.cardType();
-      uint64_t cardSize = SD.cardSize() / (1024 * 1024);
-      Serial.printf("SD Card Size: %lluMB\n", cardSize);
+      int cardType = SD.cardType();
+      uint64_t cardSize = SD.cardSize();
+      cardSize >>= 20;
+      Serial.printf("SD Card Type: %d = ", cardType);
+      if(cardType == CARD_MMC){
+        Serial.println("MMC");
+      } else if(cardType == CARD_SD){
+        Serial.println("SDSC");
+      } else if(cardType == CARD_SDHC){
+        Serial.println("SDHC");
+      } else {
+        Serial.println("UNKNOWN");
+      }
+      Serial.printf("SD Card Size: %dMB\n", (uint32_t)cardSize);
   
       delay(500);
 
@@ -487,6 +501,9 @@ ogn_protocol_2  = RF_PROTOCOL_OGNTP;
         ognrelay_key = obj["aprs"]["relaykey"];
         // String key_str = obj["aprs"]["relaykey"].as<String>();
         // ognrelay_key = (uint32_t) std::stoi(key_str,nullptr,16);
+
+        // ognvoltage_limit = obj["ognrelay"]["voltlimit"];
+
 #if defined(TBEAM)
         if (ognrelay_base && ognrelay_time)                     /* gets time from remote */
             ogn_gnsstime = false;
@@ -721,6 +738,7 @@ bool OGN_save_config(void)
     obj["ognrelay"]["reversetime"] = (int) ognreverse_time;
     obj["ognrelay"]["gnsstime"]    = (int) ogn_gnsstime;
     obj["ognrelay"]["relaykey"]    = ognrelay_key;
+    // obj["ognrelay"]["voltlimit"]   = (int) ognvoltage_limit;
 
     // snprintf(buf, sizeof(buf), "%06X", ognrelay_key);
     // buf[8] = '\0';

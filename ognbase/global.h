@@ -68,6 +68,7 @@ extern bool ognrelay_time;
 extern bool ognreverse_time;
 extern bool ogn_gnsstime;
 extern uint32_t ognrelay_key;
+extern bool ognvoltage_limit;
 
 extern bool time_master;
 extern bool time_client;
