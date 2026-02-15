@@ -5,6 +5,38 @@
 Besides the binary here, download the files in the "data" folder: config.json (template), index.html, style.css.
 
 
+## revision MB148
+
+### Minor improvements
+
+* GPIO output to shunt solar panel to keep battery voltage below 4.0V
+* in 2-station mode report to APRS the RSSI of hearing from remote station
+* in 2-station mode base listens to traffic directly one time slot every 8 sec
+* report if TTGO version is running on a T-Beam
+* show messages in Serial even if OLED not installed
+* show "mobile" operation mode on OLED
+* in mobile mode refresh web page after obtaining a GNSS fix
+* change NZ freq to 869.20
+* prevent crash if radio chip is not found
+* improved sleep behavior in 2-station operation
+* report remote background noise by channel to base even without traffic
+* if APRS port is zero, test operation without connecting to APRS
+
+
+## revision MB147
+
+### Major improvements
+
+Changes to help inaccessible remote station survive through winter
+
+
+## revision MB146
+
+### Minor improvements
+
+Fixed and improved mobile mode
+
+
 ## revision MB145
 
 ### Major improvements
