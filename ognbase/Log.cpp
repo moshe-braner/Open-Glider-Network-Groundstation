@@ -22,6 +22,7 @@
 #include "PNET.h"
 #include "GNSS.h"
 #include "global.h"
+#include "Time.h"
 
 File DebugLog;
 bool DebugLogOpen = false;
@@ -30,7 +31,7 @@ void OpenDebugLog()
 {
 #if FILE_LOGGER
   if (ogn_debug) {
-    if (SPIFFS.begin(true)) {
+    //if (SPIFFS.begin(true)) {
       bool append = false;
       if (SPIFFS.exists("/debuglog.txt") && SPIFFS.totalBytes() - SPIFFS.usedBytes() > 10000)
           append = true;
@@ -40,9 +41,9 @@ void OpenDebugLog()
       } else {
           Serial.println(F("Failed to open debuglog.txt"));
       }
-    } else {
-        Serial.println(F("Failed to start SPIFFS"));
-    }
+    //} else {
+    //    Serial.println(F("Failed to start SPIFFS"));
+    //}
   }
 #endif
 }
@@ -66,23 +67,19 @@ void LogDate()
     static bool done = false;
     if (! DebugLogOpen)
         return;
-    if (done)
+    if (this_month == 0)   // UTC time not known yet
+        return;
+    if (done)              // only report the date once
         return;
     done = true;
-#ifdef TBEAM
-    char buf[80];
-    snprintf (buf, sizeof(buf), "\r\n[%02d:%02d] Date: %d/%d\r\n",
-       ThisAircraft.hour, ThisAircraft.minute,
-       gnss.date.month(), gnss.date.day());
-    DebugLog.write((const uint8_t *)buf, strlen(buf));
-#endif
     String resetReason, logmsg;
     logmsg = "version ";
     logmsg += SOFTRF_FIRMWARE_VERSION;
     resetReason = SoC->getResetReason();
     logmsg += " restarted after " + resetReason;
-    DebugLogWrite(logmsg.c_str());
-    // DebugLog.flush();    
+    char buf[80];
+    snprintf (buf, sizeof(buf), "Date: %d/%d %s\r\n", this_month, this_day, logmsg.c_str());
+    DebugLogWrite(buf);
 #endif
 }
 
@@ -117,7 +114,7 @@ File      LogFile;
 FSInfo    fs_info;
 FtpServer ftpSrv;   //set #define FTP_DEBUG in ESP8266FtpServer.h to see ftp verbose on serial
 
-void Logger_setup()
+void Logger_setup()  // <<<>>> this is not called from anywhere
 {
     char LogFilename[] = LOGFILE;
 
@@ -158,10 +155,10 @@ void Logger_setup()
             //username, password for ftp.  set ports in ESP8266FtpServer.h  (default 21, 50009 for PASV)
             ftpSrv.begin("softrf", "softrf");
         };
-    }
-    else
+
+    } else {
         Serial.println(F("ERROR: Unable to mount SPIFFS volume."));
-    ;
+    }
 }
 
 void Logger_loop()

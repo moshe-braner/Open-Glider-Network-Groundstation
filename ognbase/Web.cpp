@@ -856,10 +856,11 @@ bool status_page_setup()
 
     yield();
 
-    //String status_page_string = String(Settings_temp);
-
-    wserver->on("/", HTTP_GET, [Settings_temp](AsyncWebServerRequest* request){
-        request->send(200, "text/html", Settings_temp);
+    String page_as_string = String(Settings_temp);
+    // it appears that passing Settings_temp directly to request->send
+    //   does not create a copy in the memory of the web server?
+    wserver->on("/", HTTP_GET, [page_as_string](AsyncWebServerRequest* request){
+        request->send(200, "text/html", page_as_string);
     });
 
     free(Settings_temp);
@@ -891,6 +892,7 @@ void Web_setup(ufo_t* this_aircraft)
     }
 #endif
 
+/*
     if (!SPIFFS.begin(true))
     {
         index_msg = "An Error has occurred while mounting SPIFFS";
@@ -898,6 +900,7 @@ void Web_setup(ufo_t* this_aircraft)
         mini_server();
         return;
     }
+*/
 
     if (status_page_setup() == false) {
         mini_server();
@@ -1226,16 +1229,14 @@ void Web_loop(void)
         globalClient->text(values);
     }
 
-    if (ogn_mobile) {
-        static bool mobile_located = false;
-        if (mobile_located == false && isValidGNSSFix()) {
-            mobile_located = true;
-            // rebuild status page - to show the lat/lon
-            if (status_page_setup() == false) {
-                wserver->on("/", HTTP_GET, [](AsyncWebServerRequest* request){
-                  handleUpload(request);
-                });
-            }
+    static bool mobile_located = false;
+    if (ogn_mobile && !mobile_located && isValidGNSSFix()) {
+        mobile_located = true;
+        // rebuild status page - to show the lat/lon
+        if (status_page_setup() == false) {
+            wserver->on("/", HTTP_GET, [](AsyncWebServerRequest* request){
+              handleUpload(request);
+            });
         }
     }
 

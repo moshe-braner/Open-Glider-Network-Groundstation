@@ -178,12 +178,19 @@ bool OGN_read_config(void)
     JsonObject          obj;
     File configFile;
 
+#define CONFIG_FILES 3
+/*
     const char *config_files[6] = { "/config.json", 
                                     "/index.html", 
                                     "/update.html", 
                                     "/style.css",
                                     "/key.bin",
                                     "/iv.bin"};    
+*/
+    const char *config_files[CONFIG_FILES+1] = { "/config.json", 
+                                                  "/index.html", 
+                                                  "/style.css",
+                                                  NULL};    
 
     if (!SPIFFS.begin(true))
     {
@@ -191,6 +198,33 @@ bool OGN_read_config(void)
         config_done = -5;
         return false;
     }
+
+    Serial.println(F("\r\nSPIFFS volume is mounted successfully."));
+/*
+    FSInfo fs_info;
+    SPIFFS.info(fs_info);
+    //Serial.println();
+    //Serial.print(F("Block size: "));
+    //Serial.println(fs_info.blockSize);
+    //Serial.print(F("Page size: "));
+    //Serial.println(fs_info.pageSize);
+    Serial.print(F("Total bytes: "));
+    Serial.println(fs_info.totalBytes);
+    Serial.print(F("Used bytes: "));
+    Serial.println(fs_info.usedBytes);
+    Serial.print(F("Storage free space: "));
+    Serial.print(fs_info.totalBytes - fs_info.usedBytes);
+    Serial.println(F(" bytes\r\n"));
+*/
+    size_t spiffs_total = SPIFFS.totalBytes();
+    size_t spiffs_used  = SPIFFS.usedBytes();
+    size_t spiffs_available = spiffs_total - spiffs_used;
+    Serial.print(F("Total bytes: "));
+    Serial.println(spiffs_total);
+    Serial.print(F("Used bytes: "));
+    Serial.println(spiffs_used);
+    Serial.print(F("Free space: "));
+    Serial.println(spiffs_available);
 
 #if defined(TTGO) || defined (T3S3)
     /*READ SD Card - config.json & firmware update*/
@@ -226,7 +260,11 @@ bool OGN_read_config(void)
   
       delay(500);
 
-      for(size_t i=0;i<6;i++){
+      for(size_t i=0; i<CONFIG_FILES; i++){
+
+        if (config_files[i] == NULL)
+            break;
+
         File file = SD.open(config_files[i], FILE_READ);       
         File tempFile = SPIFFS.open(config_files[i], FILE_WRITE);
   
@@ -261,6 +299,7 @@ bool OGN_read_config(void)
         snprintf(buf, sizeof(buf), "reboot");
         OLED_write(buf, 0, 33, false);
         DebugLogWrite("SD firmware update reboot");
+            // <<< this can't work since debug log file is not opened yet
         delay(500);
         SoC->reset();         
       }

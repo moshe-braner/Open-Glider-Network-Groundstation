@@ -5,6 +5,11 @@
 Besides the binary here, download the files in the "data" folder: config.json (template), index.html, style.css.
 
 
+## revision MB149
+
+Fixed bug in web page setup which could cause a crash or inability to refresh the web page
+
+
 ## revision MB148
 
 ### Minor improvements

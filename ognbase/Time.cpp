@@ -41,6 +41,8 @@ extern const gnss_chip_ops_t *gnss_chip;
 time_t   OurTime = 0;          /* UTC time in seconds since start of 1970 */
 uint32_t base_time_ms = 0;     /* this device millis() at last verified PPS */
 uint32_t ref_time_ms = 0;      /* assumed local millis() at last PPS */
+uint8_t this_month = 0;
+uint8_t this_day = 0;
 
 #define TIME_TO_TRYSYNC 2700
 #define TIME_TO_ACKSYNC 10300
@@ -673,10 +675,11 @@ Serial.printf("PPS=%d < ref=%d ??\r\n", pps_btime_ms, ref_time_ms);
     tm.Hour   = gnss.time.hour();
     tm.Minute = gnss.time.minute();
     tm.Second = gnss.time.second();
-
     ThisAircraft.second = tm.Second;
     ThisAircraft.minute = tm.Minute;
     ThisAircraft.hour   = tm.Hour;
+    this_day   = tm.Day;
+    this_month = tm.Month;
     OurTime = makeTime(tm) + (gnss_age + time_corr_neg) / 1000;
 
 #else // !defined(TBEAM)
@@ -1209,6 +1212,8 @@ void Poll_NTP()
         ref_time_ms = NTP_PPS_ms;
         Serial.printf("OurTime set by NTP: %d sec (%02d:%02d:%02d)\r\n",
             OurTime, ThisAircraft.hour, ThisAircraft.minute, ThisAircraft.second);
+        this_day   = day(OurTime);
+        this_month = month(OurTime);
         return;
     }
     // if second is wrong, fix that right away (rarely needed)

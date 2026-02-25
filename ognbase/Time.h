@@ -23,6 +23,8 @@ extern time_t OurTime;    /* derived from GNSS */
 extern uint32_t ref_time_ms;
 extern uint16_t have_reverse_time;
 extern bool reverse_time_sync;
+extern uint8_t this_month;
+extern uint8_t this_day;
 
 extern bool time_synched;
 extern bool NTP_synched;
